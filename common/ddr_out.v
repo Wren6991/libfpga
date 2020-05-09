@@ -18,7 +18,6 @@
 // Timing:
 // d_rise, d_fall are both sampled on the same rising clk edge.
 // d_rise goes straight to the pad, and d_fall follows a half-cycle later.
-// oe determines output enable for entire following clock cycle.
 
 module ddr_out (
 	input wire clk,
@@ -52,6 +51,26 @@ SB_IO #(
 	.CLOCK_ENABLE (e),
 	.D_OUT_0      (d_rise),
 	.D_OUT_1      (d_fall_r)
+);
+
+`elseif FPGA_ECP5
+
+// Remember previous value so we can emulate a clock-enable. This logic should
+// be trimmed if e is tied high.
+reg [1:0] prev;
+always @ (posedge clk or negedge rst_n)
+	if (!rst_n)
+		prev <= 2'b00;
+	else if (e)
+		prev <= {d_fall, d_rise};
+
+
+ODDRX1F oddr (
+	.D0   (e ? d_rise : prev[0]),
+	.D1   (e ? d_fall : prev[1]),
+	.SCLK (clk),
+	.RST  (0),
+	.Q    (q)
 );
 
 `else
