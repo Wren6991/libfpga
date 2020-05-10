@@ -53,7 +53,7 @@ SB_IO #(
 	.D_OUT_1      (d_fall_r)
 );
 
-`elseif FPGA_ECP5
+`elsif FPGA_ECP5
 
 // Remember previous value so we can emulate a clock-enable. This logic should
 // be trimmed if e is tied high.
