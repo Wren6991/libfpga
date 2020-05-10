@@ -1,3 +1,3 @@
 file ahb_async_sram.v
-file $HDL/common/tristate_io.v
-file $HDL/common/ddr_out.v
+file ../common/tristate_io.v
+file ../common/ddr_out.v
