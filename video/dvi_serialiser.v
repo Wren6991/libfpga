@@ -27,6 +27,8 @@ module dvi_serialiser (
 );
 
 wire [1:0] data_x5;
+reg [1:0] data_x5_delay;
+reg [1:0] data_x5_ndelay;
 
 gearbox #(
 	.W_IN         (10),
@@ -42,12 +44,22 @@ gearbox #(
 	.dout       (data_x5)
 );
 
+always @ (posedge clk_x5 or negedge rst_n_x5) begin
+	if (!rst_n_x5) begin
+		data_x5_delay <= 2'h0;
+		data_x5_ndelay <= 2'h0;
+	end else begin
+		data_x5_delay <= data_x5;
+		data_x5_ndelay <= ~data_x5;
+	end
+end
+
 ddr_out ddrp (
 	.clk    (clk_x5),
 	.rst_n  (rst_n_x5),
 
-	.d_rise (data_x5[0]),
-	.d_fall (data_x5[1]),
+	.d_rise (data_x5_delay[0]),
+	.d_fall (data_x5_delay[1]),
 	.e      (1),
 	.q      (qp)
 );
@@ -56,8 +68,8 @@ ddr_out ddrn (
 	.clk    (clk_x5),
 	.rst_n  (rst_n_x5),
 
-	.d_rise (!data_x5[0]),
-	.d_fall (!data_x5[1]),
+	.d_rise (data_x5_ndelay[0]),
+	.d_fall (data_x5_ndelay[1]),
 	.e      (1),
 	.q      (qn)
 );
