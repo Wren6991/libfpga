@@ -34,9 +34,19 @@ SB_IO #(
 	//           |  \-------- Registered output (don't care)
 	//           \----------- Permanent output disable
 	.PULLUP(1'b1)
-) buffer (
+) input_buffer (
 	.PACKAGE_PIN (pad),
 	.D_IN_0      (padin)
+);
+
+`elsif FPGA_ECP5
+
+wire padin;
+assign in = padin ^ INVERT;
+
+IBPU input_buffer(
+	.I (pad),
+	.O (padin)
 );
 
 `else
