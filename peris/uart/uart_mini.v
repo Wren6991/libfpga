@@ -76,6 +76,16 @@ assign dreq = irq;
 
 wire clk_en;
 
+wire rx_sync;
+wire din_comb = csr_loopback ? tx : rx_sync;
+
+sync_1bit rx_synchroniser (
+	.clk   (clk),
+	.rst_n (rst_n_sync),
+	.i     (rx),
+	.o     (rx_sync)
+);
+
 // ================
 // TX State Machine
 // ================
@@ -159,8 +169,6 @@ end
 reg [W_OVER-1:0] rx_over_ctr;
 reg [3:0] rx_state;
 reg [7:0] rx_shifter;
-
-wire din_comb = csr_loopback ? tx : rx;
 
 // Nearly-useless glitch filter
 reg [1:0] din_prev;
