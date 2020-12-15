@@ -37,7 +37,10 @@ module dvi_tx_parallel #(
 	parameter V_FRONT_PORCH     = 10,
 	parameter V_SYNC_WIDTH      = 2,
 	parameter V_BACK_PORCH      = 33,
-	parameter V_ACTIVE_LINES    = 480
+	parameter V_ACTIVE_LINES    = 480,
+
+	// If 1, use the much smaller pixel-doubled encoder:
+	parameter SMOL_TMDS_ENCODE  = 0
 ) (
 	input wire clk,
 	input wire rst_n,
@@ -79,32 +82,68 @@ dvi_timing #(
 	.den   (den)
 );
 
-tmds_encode tmds2_encoder (
-	.clk   (clk),
-	.rst_n (rst_n),
-	.c     (2'b00),
-	.d     (r),
-	.den   (den),
-	.q     (tmds2)
-);
+generate
+if (SMOL_TMDS_ENCODE) begin: smol_encode
 
-tmds_encode tmds1_encoder (
-	.clk   (clk),
-	.rst_n (rst_n),
-	.c     (2'b00),
-	.d     (g),
-	.den   (den),
-	.q     (tmds1)
-);
+	smoldvi_tmds_encode tmds2_encoder (
+		.clk   (clk),
+		.rst_n (rst_n),
+		.c     (2'b00),
+		.d     (r),
+		.den   (den),
+		.q     (tmds2)
+	);
 
-tmds_encode tmds0_encoder (
-	.clk   (clk),
-	.rst_n (rst_n),
-	.c     ({vsync, hsync}),
-	.d     (b),
-	.den   (den),
-	.q     (tmds0)
-);
+	smoldvi_tmds_encode tmds1_encoder (
+		.clk   (clk),
+		.rst_n (rst_n),
+		.c     (2'b00),
+		.d     (g),
+		.den   (den),
+		.q     (tmds1)
+	);
+
+	smoldvi_tmds_encode tmds0_encoder (
+		.clk   (clk),
+		.rst_n (rst_n),
+		.c     ({vsync, hsync}),
+		.d     (b),
+		.den   (den),
+		.q     (tmds0)
+	);
+
+end else begin: full_encode
+
+
+	tmds_encode tmds2_encoder (
+		.clk   (clk),
+		.rst_n (rst_n),
+		.c     (2'b00),
+		.d     (r),
+		.den   (den),
+		.q     (tmds2)
+	);
+
+	tmds_encode tmds1_encoder (
+		.clk   (clk),
+		.rst_n (rst_n),
+		.c     (2'b00),
+		.d     (g),
+		.den   (den),
+		.q     (tmds1)
+	);
+
+	tmds_encode tmds0_encoder (
+		.clk   (clk),
+		.rst_n (rst_n),
+		.c     ({vsync, hsync}),
+		.d     (b),
+		.den   (den),
+		.q     (tmds0)
+	);
+
+end
+endgenerate
 
 assign rgb_rdy = den;
 

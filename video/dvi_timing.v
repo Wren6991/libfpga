@@ -72,26 +72,26 @@ always @ (posedge clk or negedge rst_n) begin
 		h_state <= S_FRONT_PORCH;
 		v_advance <= 1'b0;
 	end else begin
-		h_ctr <= h_ctr + 1'b1;
-		v_advance <= h_state == S_ACTIVE && h_ctr == H_ACTIVE_PIXELS - 2;
+		h_ctr <= h_ctr - 1'b1;
+		v_advance <= h_state == S_ACTIVE && h_ctr == 1;
 		case (h_state)
-		S_FRONT_PORCH: if (h_ctr == H_FRONT_PORCH - 1) begin
-			h_ctr <= {W_H_CTR{1'b0}};
+		S_FRONT_PORCH: if (h_ctr == 0) begin
+			h_ctr <= H_SYNC_WIDTH - 1;
 			h_state <= S_SYNC;
 			hsync <= H_SYNC_POLARITY;
 		end
-		S_SYNC: if (h_ctr == H_SYNC_WIDTH - 1) begin
-			h_ctr <= {W_H_CTR{1'b0}};
+		S_SYNC: if (h_ctr == 0) begin
+			h_ctr <= H_BACK_PORCH - 1;
 			h_state <= S_BACK_PORCH;
 			hsync <= !H_SYNC_POLARITY;
 		end
-		S_BACK_PORCH: if (h_ctr == H_BACK_PORCH - 1) begin
-			h_ctr <= {W_H_CTR{1'b0}};
+		S_BACK_PORCH: if (h_ctr == 0) begin
+			h_ctr <= H_ACTIVE_PIXELS - 1;
 			h_state <= S_ACTIVE;
 			den <= in_active_vertical_period;
 		end
-		S_ACTIVE: if (h_ctr == H_ACTIVE_PIXELS - 1) begin
-			h_ctr <= {W_H_CTR{1'b0}};
+		S_ACTIVE: if (h_ctr == 0) begin
+			h_ctr <= H_FRONT_PORCH - 1;
 			h_state <= S_FRONT_PORCH;
 			den <= 1'b0;
 		end
@@ -117,25 +117,25 @@ always @ (posedge clk or negedge rst_n) begin
 		v_ctr <= {W_V_CTR{1'b0}};
 		v_state <= S_FRONT_PORCH;
 	end else if (v_advance) begin
-		v_ctr <= v_ctr + 1'b1;
+		v_ctr <= v_ctr - 1'b1;
 		case (v_state)
-		S_FRONT_PORCH: if (v_ctr == V_FRONT_PORCH - 1) begin
-			v_ctr <= {W_V_CTR{1'b0}};
+		S_FRONT_PORCH: if (v_ctr == 0) begin
+			v_ctr <= V_SYNC_WIDTH - 1;
 			v_state <= S_SYNC;
 			vsync <= V_SYNC_POLARITY;
 		end
-		S_SYNC: if (v_ctr == V_SYNC_WIDTH - 1) begin
-			v_ctr <= {W_V_CTR{1'b0}};
+		S_SYNC: if (v_ctr == 0) begin
+			v_ctr <= V_BACK_PORCH - 1;
 			v_state <= S_BACK_PORCH;
 			vsync <= !V_SYNC_POLARITY;
 		end
-		S_BACK_PORCH: if (v_ctr == V_BACK_PORCH - 1) begin
-			v_ctr <= {W_V_CTR{1'b0}};
+		S_BACK_PORCH: if (v_ctr == 0) begin
+			v_ctr <= V_ACTIVE_LINES - 1;
 			v_state <= S_ACTIVE;
 			in_active_vertical_period <= 1'b1;
 		end
-		S_ACTIVE: if (v_ctr == V_ACTIVE_LINES - 1) begin
-			v_ctr <= {W_V_CTR{1'b0}};
+		S_ACTIVE: if (v_ctr == 0) begin
+			v_ctr <= V_FRONT_PORCH - 1;
 			v_state <= S_FRONT_PORCH;
 			in_active_vertical_period <= 1'b0;
 		end

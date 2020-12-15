@@ -2,7 +2,7 @@
  * DO WHAT THE FUCK YOU WANT TO AND DON'T BLAME US PUBLIC LICENSE     *
  *                    Version 3, April 2008                           *
  *                                                                    *
- * Copyright (C) 2018 Luke Wren                                       *
+ * Copyright (C) 2020 Luke Wren                                       *
  *                                                                    *
  * Everyone is permitted to copy and distribute verbatim or modified  *
  * copies of this license document and accompanying software, and     *
@@ -32,52 +32,101 @@
  module gearbox #(
 	parameter W_IN = 10,
 	parameter W_OUT = 2,
-	parameter STORAGE_SIZE = W_IN * W_OUT // This is not really the right expression, but it's difficult to calculate. Better to set this one by hand.
+	// You should set this by hand, it may be hugely pessimistic *or* optimistic:
+	parameter STORAGE_SIZE = W_IN * W_OUT
 ) (
-	input  wire            clk_in,
-	input  wire            rst_n_in,
-	input  wire [W_IN-1:0] din,
+	input  wire             clk_in,
+	input  wire             rst_n_in,
+	input  wire [W_IN-1:0]  din,
 
-	input  wire            clk_out,
-	input  wire            rst_n_out,
-(* keep = 1'b1 *) output reg [W_OUT-1:0] dout
+	input  wire             clk_out,
+	input  wire             rst_n_out,
+	output reg  [W_OUT-1:0] dout
 );
 
 localparam N_IN = STORAGE_SIZE / W_IN;
 localparam N_OUT = STORAGE_SIZE / W_OUT;
 
-parameter W_IN_PTR = $clog2(N_IN);
-parameter W_OUT_PTR = $clog2(N_OUT);
+(* keep = 1'b1 *) reg [STORAGE_SIZE-1:0] launch_reg;
+(* keep = 1'b1 *) reg [STORAGE_SIZE-1:0] capture_reg;
 
-(* keep = 1'b1 *) reg [STORAGE_SIZE-1:0] storage;
+// ----------------------------------------------------------------------------
+// Apply transitions to sections of launch register, in a circular manner,
+// across successive clk_in cycles
 
-(* keep = 1'b1 *) reg [W_IN_PTR-1:0] in_ptr;
+reg [N_IN-1:0] wmask;
 
 always @ (posedge clk_in or negedge rst_n_in) begin
 	if (!rst_n_in) begin
-		in_ptr <= N_IN / 2;
+		wmask <= {{N_IN-1{1'b0}}, 1'b1};
 	end else begin
-		if (in_ptr == N_IN - 1)
-			in_ptr <= {W_IN_PTR{1'b0}};
-		else
-			in_ptr <= in_ptr + 1'b1;
-		storage[in_ptr * W_IN +: W_IN] <= din;
+		wmask <= {wmask[N_IN-2:0], wmask[N_IN-1]};
 	end
 end
 
-(* keep = 1'b1 *) reg [W_OUT_PTR-1:0] out_ptr;
+always @ (posedge clk_in) begin: wport
+	integer i;
+	for (i = 0; i < N_IN; i = i + 1) begin
+		if (wmask[i])
+			launch_reg[i * W_IN +: W_IN] <= din;
+	end
+end
+
+// ----------------------------------------------------------------------------
+// Apply enables to sections of capture register, in a circular manner, across
+// successive clk_out cycles (hopefully staying distant from the transitions!)
+
+reg [N_OUT-1:0] rmask;
 
 always @ (posedge clk_out or negedge rst_n_out) begin
 	if (!rst_n_out) begin
-		out_ptr <= {W_OUT_PTR{1'b0}};
-		dout <= {W_OUT{1'b1}};
+		// Reads start as far as possible from writes
+		rmask <= {{N_OUT-1{1'b0}}, 1'b1} << (N_OUT / 2);
 	end else begin
-		if (out_ptr == N_OUT - 1)
-			out_ptr <= {W_OUT_PTR{1'b0}};
-		else
-			out_ptr <= out_ptr + 1'b1;
-		dout <= storage[out_ptr * W_OUT +: W_OUT];
+		rmask <= {rmask[N_OUT-2:0], rmask[N_OUT-1]};
 	end
+end
+
+always @ (posedge clk_out) begin: capture_proc
+	integer i;
+	for (i = 0; i < N_OUT; i = i + 1) begin
+		if (rmask[i])
+			capture_reg[i * W_OUT +: W_OUT] <= launch_reg[i * W_OUT +: W_OUT];
+	end
+end
+
+// ----------------------------------------------------------------------------
+// CDC done, now on to the muxing
+
+wire [N_OUT-1:0] rmask_delayed = {rmask[0], rmask[N_OUT-1:1]};
+reg [STORAGE_SIZE-1:0] captured_masked;
+
+always @ (posedge clk_out) begin: output_mask
+	integer i;
+	for (i = 0; i < STORAGE_SIZE; i = i + 1) begin
+		captured_masked[i] <= capture_reg[i] && rmask_delayed[i / W_OUT];
+	end
+end
+
+// Do the OR reduction in one cycle. For 20 storage flops this is a 10:1
+// reduction, which costs 2 LUT delays. Easiest way to reduce further is to add
+// an empty pipe stage afterward and tell the tools to retime :) OR reductions
+// are very retimable.
+
+reg [W_OUT-1:0] muxed;
+
+always @ (*) begin: output_mux
+	integer i, j;
+	for (i = 0; i < W_OUT; i = i + 1) begin
+		muxed[i] = 1'b0;
+		for (j = 0; j < N_OUT; j = j + 1) begin
+			muxed[i] = muxed[i] || captured_masked[j * W_OUT + i];
+		end
+	end
+end
+
+always @ (posedge clk_out) begin
+	dout <= muxed;
 end
 
 endmodule
