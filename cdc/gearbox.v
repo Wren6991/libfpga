@@ -33,15 +33,25 @@
 	parameter W_IN = 10,
 	parameter W_OUT = 2,
 	// You should set this by hand, it may be hugely pessimistic *or* optimistic:
-	parameter STORAGE_SIZE = W_IN * W_OUT
+	parameter STORAGE_SIZE = W_IN * W_OUT,
+	// Reduce the granularity of capture clock enable to help PLB packing on
+	// iCE40 (careful with your divisibility):
+	parameter CE_GROUPING_FACTOR = 1,
+	// Use external counters, which can be shared between gearboxes, for bigger
+	// CE groups and better PLB packing on iCE40:
+	parameter USE_EXTERNAL_COUNTERS = 0
 ) (
-	input  wire             clk_in,
-	input  wire             rst_n_in,
-	input  wire [W_IN-1:0]  din,
+	input  wire                              clk_in,
+	input  wire                              rst_n_in,
+	input  wire [W_IN-1:0]                   din,
 
-	input  wire             clk_out,
-	input  wire             rst_n_out,
-	output reg  [W_OUT-1:0] dout
+	input  wire                              clk_out,
+	input  wire                              rst_n_out,
+	output reg  [W_OUT-1:0]                  dout,
+
+	// Disconnect unless USE_EXTERNAL_COUNTERS is set:
+	input  wire [STORAGE_SIZE / W_IN - 1:0]  external_ctr_in,
+	input  wire [STORAGE_SIZE / W_OUT - 1:0] external_ctr_out
 );
 
 localparam N_IN = STORAGE_SIZE / W_IN;
@@ -56,13 +66,19 @@ localparam N_OUT = STORAGE_SIZE / W_OUT;
 
 reg [N_IN-1:0] wmask;
 
-always @ (posedge clk_in or negedge rst_n_in) begin
-	if (!rst_n_in) begin
-		wmask <= {{N_IN-1{1'b0}}, 1'b1};
-	end else begin
-		wmask <= {wmask[N_IN-2:0], wmask[N_IN-1]};
+generate
+if (USE_EXTERNAL_COUNTERS) begin: no_wctr
+	always @ (*) wmask = external_ctr_in;
+end else begin: has_wctr
+	always @ (posedge clk_in or negedge rst_n_in) begin
+		if (!rst_n_in) begin
+			wmask <= {{N_IN-1{1'b0}}, 1'b1};
+		end else begin
+			wmask <= {wmask[N_IN-2:0], wmask[N_IN-1]};
+		end
 	end
 end
+endgenerate
 
 always @ (posedge clk_in) begin: wport
 	integer i;
@@ -78,19 +94,25 @@ end
 
 reg [N_OUT-1:0] rmask;
 
-always @ (posedge clk_out or negedge rst_n_out) begin
-	if (!rst_n_out) begin
-		// Reads start as far as possible from writes
-		rmask <= {{N_OUT-1{1'b0}}, 1'b1} << (N_OUT / 2);
-	end else begin
-		rmask <= {rmask[N_OUT-2:0], rmask[N_OUT-1]};
+generate
+if (USE_EXTERNAL_COUNTERS) begin: no_rctr
+	always @ (*) rmask = external_ctr_out;
+end else begin: has_rctr
+	always @ (posedge clk_out or negedge rst_n_out) begin
+		if (!rst_n_out) begin
+			// Reads start as far as possible from writes
+			rmask <= {{N_OUT-1{1'b0}}, 1'b1} << (N_OUT / 2);
+		end else begin
+			rmask <= {rmask[N_OUT-2:0], rmask[N_OUT-1]};
+		end
 	end
 end
+endgenerate
 
 always @ (posedge clk_out) begin: capture_proc
 	integer i;
 	for (i = 0; i < N_OUT; i = i + 1) begin
-		if (rmask[i])
+		if (rmask[i / CE_GROUPING_FACTOR * CE_GROUPING_FACTOR])
 			capture_reg[i * W_OUT +: W_OUT] <= launch_reg[i * W_OUT +: W_OUT];
 	end
 end
