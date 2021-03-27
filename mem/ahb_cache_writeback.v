@@ -56,19 +56,27 @@ module ahb_cache_writeback #(
 // ----------------------------------------------------------------------------
 // Cache control state machine
 
-localparam W_STATE = 4;
-localparam S_IDLE         = 4'd0;  // No data phase in progress
-localparam S_READ_CHECK   = 4'd1;  // Cache status and read data are valid
-localparam S_READ_CLEAN   = 4'd2;  // Writing back a dirty line before eviction
-localparam S_READ_FILL    = 4'd3;  // Pulling in a clean line for reading
-localparam S_READ_DONE    = 4'd4;  // Buffered read data response (cut external hrdata path)
-localparam S_WRITE_CHECK  = 4'd5;  // Cache status is valid
-localparam S_WRITE_CLEAN  = 4'd6;  // Writing back a dirty line before eviction
-localparam S_WRITE_FILL   = 4'd7;  // Pulling in a clean line before modifying
-localparam S_WRITE_MODIFY = 4'd8;  // Updating a valid line following a fill
-localparam S_WRITE_DONE   = 4'd9;  // Generate AHB OKAY response and accept new address phase
-localparam S_ERR_PH0      = 4'd10; // AHBL error phase 0
-localparam S_ERR_PH1      = 4'd11; // AHBL error phase 1
+localparam W_STATE = 5;
+localparam S_IDLE         = 5'd0;  // No data phase in progress
+localparam S_READ_CHECK   = 5'd1;  // Cache status and read data are valid
+localparam S_READ_CLEAN   = 5'd2;  // Writing back a dirty line before eviction
+localparam S_READ_FILL    = 5'd3;  // Pulling in a clean line for reading
+localparam S_READ_DONE    = 5'd4;  // Buffered read data response (cut external hrdata path)
+localparam S_WRITE_CHECK  = 5'd5;  // Cache status is valid
+localparam S_WRITE_CLEAN  = 5'd6;  // Writing back a dirty line before eviction
+localparam S_WRITE_FILL   = 5'd7;  // Pulling in a clean line before modifying
+localparam S_WRITE_MODIFY = 5'd8;  // Updating a valid line following a fill
+localparam S_WRITE_DONE   = 5'd9;  // Generate AHB OKAY response and accept new address phase
+
+localparam S_UWRITE_APH   = 5'd10; // Uncached write downstream address phase
+localparam S_UWRITE_DPH   = 5'd11; // Uncached write downstream data phase
+localparam S_UWRITE_DONE  = 5'd12; // Uncache write completion (hready is registered)
+localparam S_UREAD_APH    = 5'd13; // Uncached read downstream address phase
+localparam S_UREAD_DPH    = 5'd14; // Uncached read downstream data phase
+localparam S_UREAD_DONE   = 5'd15; // Uncached read completion (hrdata is registered)
+
+localparam S_ERR_PH0      = 5'd16; // Upstream error response phase 0
+localparam S_ERR_PH1      = 5'd17; // Upstream error response phase 1
 
 reg [W_STATE-1:0]   cache_state;
 reg [W_ADDR-1:0]    addr_dphase;
@@ -77,13 +85,17 @@ reg [2:0]           size_dphase;
 wire                cache_hit;
 wire                cache_dirty;
 
+wire src_uncacheable = !(src_hprot[3] && src_hprot[2]);
+
 wire src_aphase_read = src_hready && src_htrans[1] && !src_hwrite;
 wire src_aphase_write = src_hready && src_htrans[1] && src_hwrite;
 wire src_aphase = src_aphase_read || src_aphase_write;
 
-wire [W_STATE-1:0] s_check_or_idle =
-	src_aphase_read  ? S_READ_CHECK :
-	src_aphase_write ? S_WRITE_CHECK : S_IDLE;
+wire [W_STATE-1:0] s_next_or_idle =
+	src_aphase_read  && src_uncacheable ? S_UREAD_APH   :
+	src_aphase_write && src_uncacheable ? S_UWRITE_APH  :
+	src_aphase_read                     ? S_READ_CHECK  :
+	src_aphase_write                    ? S_WRITE_CHECK : S_IDLE;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
@@ -100,13 +112,11 @@ always @ (posedge clk or negedge rst_n) begin
 		cache_state <= S_IDLE;
 	end else case (cache_state)
 		S_IDLE: begin
-			if (src_aphase) begin
-				cache_state <= s_check_or_idle;
-			end
+			cache_state <= s_next_or_idle;
 		end
 		S_READ_CHECK: begin
 			if (cache_hit) begin
-				cache_state <= s_check_or_idle;
+				cache_state <= s_next_or_idle;
 			end else if (cache_dirty) begin
 				cache_state <= S_READ_CLEAN;
 			end else begin
@@ -124,7 +134,7 @@ always @ (posedge clk or negedge rst_n) begin
 			end
 		end
 		S_READ_DONE: begin
-			cache_state <= s_check_or_idle;
+			cache_state <= s_next_or_idle;
 		end
 		S_WRITE_CHECK: begin
 			if (cache_hit) begin
@@ -154,13 +164,37 @@ always @ (posedge clk or negedge rst_n) begin
 		end
 		S_WRITE_DONE: begin
 			// Dummy state required to avoid read/write address collision
-			cache_state <= s_check_or_idle;
+			cache_state <= s_next_or_idle;
+		end
+		S_UWRITE_APH: begin
+			// IDLE->OKAY means no stall or error
+			cache_state <= S_UWRITE_DPH;
+		end
+		S_UWRITE_DPH: begin
+			if (dst_hready) begin
+				cache_state <= dst_hresp ? S_ERR_PH0 : S_UWRITE_DONE;
+			end
+		end
+		S_UWRITE_DONE: begin
+			cache_state <= s_next_or_idle;
+		end
+		S_UREAD_APH: begin
+			// IDLE->OKAY means no stall or error
+			cache_state <= S_UREAD_DPH;
+		end
+		S_UREAD_DPH: begin
+			if (dst_hready) begin
+				cache_state <= dst_hresp ? S_ERR_PH0 : S_UREAD_DONE;
+			end
+		end
+		S_UREAD_DONE: begin
+			cache_state <= s_next_or_idle;
 		end
 		S_ERR_PH0: begin
 			cache_state <= S_ERR_PH1;
 		end
 		S_ERR_PH1: begin
-			cache_state <= s_check_or_idle;
+			cache_state <= s_next_or_idle;
 		end
 	endcase
 end
@@ -228,53 +262,75 @@ assign cache_invalidate = 1'b0; // for now!
 assign cache_clean = 1'b0; // for now! (lines become clean when filled, but we never clean in-place.)
 
 // ----------------------------------------------------------------------------
-// Bus wrangling
-
 // Destination request
 
+wire [W_ADDR-1:0] addr_mask = {{W_ADDR-LOG_BUS_WIDTH{1'b1}}, {LOG_BUS_WIDTH{
+	cache_state == S_UWRITE_APH || cache_state == S_UWRITE_DPH}}};
+
 assign dst_haddr = (cache_state == S_WRITE_CHECK || cache_state == S_READ_CHECK)
-	&& cache_dirty ? cache_dirty_addr : addr_dphase;
+	&& cache_dirty ? cache_dirty_addr : addr_dphase & addr_mask;
 
 assign dst_htrans = (
 	cache_state == S_READ_CHECK && !cache_hit ||
 	cache_state == S_READ_CLEAN ||
 	cache_state == S_WRITE_CHECK && !cache_hit ||
-	cache_state == S_WRITE_CLEAN
+	cache_state == S_WRITE_CLEAN ||
+	cache_state == S_UWRITE_APH ||
+	cache_state == S_UREAD_APH
 	) ? 2'b10 : 2'b00;
 
 assign dst_hwrite =
 	cache_state == S_READ_CHECK && !cache_hit && cache_dirty ||
-	cache_state == S_WRITE_CHECK && !cache_hit && cache_dirty;
+	cache_state == S_WRITE_CHECK && !cache_hit && cache_dirty ||
+	cache_state == S_UWRITE_APH;
 
-assign dst_hwdata = cache_rdata;
+reg [W_DATA-1:0] src_hwdata_reg;
+always @ (posedge clk or negedge rst_n) begin
+	if (!rst_n) begin
+		src_hwdata_reg <= {W_DATA{1'b0}};
+	end else if (cache_state == S_UWRITE_APH) begin
+		src_hwdata_reg <= src_hwdata;
+	end
+end
 
+assign dst_hwdata = cache_state == S_UWRITE_DPH ? src_hwdata_reg : cache_rdata;
+
+parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
+assign dst_hsize = cache_state == S_UWRITE_APH || cache_state == S_UREAD_APH
+	? size_dphase : BUS_SIZE_BYTES;
+
+assign dst_hready = dst_hready_resp;
+
+// Tie off unused controls
+assign dst_hmastlock = 1'b0;
+assign dst_hprot = 4'b0011;
+assign dst_hburst = 3'b000;
+
+// ----------------------------------------------------------------------------
 // Source response
 
 reg [W_DATA-1:0] dst_hrdata_reg;
+
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		dst_hrdata_reg <= {W_DATA{1'b0}};
-	end else begin
+	end else if (dst_hready) begin
 		dst_hrdata_reg <= dst_hrdata;
 	end
 end
-assign src_hrdata = cache_state == S_READ_DONE ? dst_hrdata_reg : cache_rdata;
+
+assign src_hrdata = cache_state == S_READ_DONE || cache_state == S_UREAD_DONE
+	? dst_hrdata_reg : cache_rdata;
 
 assign src_hready_resp =
 	cache_state == S_IDLE ||
 	cache_state == S_READ_CHECK && cache_hit ||
 	cache_state == S_READ_DONE ||
 	cache_state == S_WRITE_DONE ||
+	cache_state == S_UREAD_DONE ||
+	cache_state == S_UWRITE_DONE ||
 	cache_state == S_ERR_PH1;
 
 assign src_hresp = cache_state == S_ERR_PH0 || cache_state == S_ERR_PH1;
-
-
-// Tie off unused controls
-assign dst_hmastlock = 1'b0;
-assign dst_hprot = 4'b0011;
-assign dst_hburst = 3'b000;
-parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
-assign dst_hsize = BUS_SIZE_BYTES;
 
 endmodule
