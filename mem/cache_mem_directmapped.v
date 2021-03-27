@@ -47,7 +47,8 @@ module cache_mem_directmapped #(
 
 	// Status of last read
 	output wire                hit,
-	output wire                dirty
+	output wire                dirty,
+	output wire [W_ADDR-1:0]   dirty_addr
 );
 
 localparam W_TAG = W_ADDR - W_INDEX - W_OFFS;
@@ -70,9 +71,13 @@ wire [W_TAG-1:0]  tmem_rdata_tag   = tmem_rdata[W_TAG-1:0];
 wire              tmem_rdata_valid = tmem_rdata[W_TAG];
 wire              tmem_rdata_dirty;
 
+// Note the wen_modify terms are needed because, even though a modify should
+// never change the tag+valid, a modify may immediately follow a fill which *did*
+// change the tag+valid, and there will have been no intervening read, so rdata will
+// still be presenting the *old* tag+valid.
+wire [W_TAG-1:0]  tmem_next_tag = wen_fill || |wen_modify ? addr_tag : tmem_rdata_tag;
 
-wire [W_TAG-1:0]  tmem_next_tag = wen_fill ? addr_tag : tmem_rdata;
-wire              tmem_next_valid = (tmem_rdata_valid && !invalidate) || wen_fill;
+wire              tmem_next_valid = (tmem_rdata_valid && !invalidate) || wen_fill || |wen_modify;
 wire              tmem_next_dirty = (tmem_rdata_dirty && !(clean || invalidate || wen_fill)) || |wen_modify;
 
 assign tmem_wdata[W_TAG:0] = {tmem_next_valid, tmem_next_tag};
@@ -100,6 +105,22 @@ end
 
 assign hit = tmem_rdata_valid && tmem_rdata_tag == addr_tag_prev;
 assign dirty = tmem_rdata_valid && tmem_rdata_dirty;
+
+generate
+if (TRACK_DIRTY) begin: gen_dirty_addr
+	reg [W_INDEX-1:0] addr_index_prev;
+	always @ (posedge clk or negedge rst_n) begin
+		if (!rst_n) begin
+			addr_index_prev <= {W_INDEX{1'b0}};
+		end else if (ren) begin
+			addr_index_prev <= addr_index;
+		end
+	end
+	assign dirty_addr = {tmem_rdata_tag, addr_index_prev, {W_OFFS{1'b0}}};
+end else begin: no_dirty_addr
+	assign dirty_addr = {W_ADDR{1'b0}};
+end
+endgenerate
 
 // ----------------------------------------------------------------------------
 // Cache memories

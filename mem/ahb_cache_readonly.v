@@ -153,7 +153,8 @@ cache_mem_directmapped #(
 	.invalidate (1'b0),
 	.clean      (1'b0),
 	.hit        (cache_hit),
-	.dirty      (/* unused */)
+	.dirty      (/* unused */),
+	.dirty_addr (/* unused */)
 );
 
 // ----------------------------------------------------------------------------
