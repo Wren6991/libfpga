@@ -56,11 +56,13 @@ module ahb_cache_readonly #(
 // ----------------------------------------------------------------------------
 // Cache control state machine
 
-localparam W_STATE     = 2;
-localparam S_IDLE      = 2'd0;
-localparam S_CHECK     = 2'd1;
-localparam S_MISS_WAIT = 2'd2;
-localparam S_MISS_DONE = 2'd3;
+localparam W_STATE     = 3;
+localparam S_IDLE      = 3'd0;
+localparam S_CHECK     = 3'd1;
+localparam S_MISS_WAIT = 3'd2;
+localparam S_MISS_DONE = 3'd3;
+localparam S_ERR_PH0   = 3'd4;
+localparam S_ERR_PH1   = 3'd5;
 
 reg [W_STATE-1:0] cache_state;
 reg [W_ADDR-1:0]  addr_dphase;
@@ -73,7 +75,7 @@ wire              cache_fill;
 wire              cache_hit;
 
 wire src_aphase_active = src_hready && src_htrans[1] && !src_hwrite;
-wire dst_data_ready;
+wire dst_data_capture;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
@@ -94,13 +96,27 @@ always @ (posedge clk or negedge rst_n) begin
 			if (src_aphase_active)
 				addr_dphase <= src_haddr;
 		end
-		S_MISS_WAIT: begin
-			if (dst_data_ready)
+		S_MISS_WAIT: if (dst_hready) begin
+			if (dst_hready && dst_hresp)
+				cache_state <= S_ERR_PH0;
+			else if (dst_data_capture)
 				cache_state <= S_MISS_DONE;
 		end
 		S_MISS_DONE: begin
 			// Purpose of this state is really to allow us to register the downstream
 			// hrdata before passing to upstream hrdata
+			if (src_aphase_active) begin
+				cache_state <= S_CHECK;
+				addr_dphase <= src_haddr;
+			end else begin
+				cache_state <= S_IDLE;
+			end
+		end
+		S_ERR_PH0: begin
+			cache_state <= S_ERR_PH1;
+		end
+		S_ERR_PH1: begin
+			// src is permitted but *not required* to deassert its next transfer during S_ERR_PH0.
 			if (src_aphase_active) begin
 				cache_state <= S_CHECK;
 				addr_dphase <= src_haddr;
@@ -116,13 +132,9 @@ end
 
 assign cache_ren = src_aphase_active;
 assign cache_addr = cache_state == S_MISS_WAIT ? addr_dphase : src_haddr;
-assign src_hready_resp =
-	cache_state == S_IDLE ||
-	(cache_state == S_CHECK && cache_hit) ||
-	cache_state == S_MISS_DONE;
 
 assign cache_wdata = dst_hrdata;
-assign cache_fill = cache_state == S_MISS_WAIT && dst_data_ready;
+assign cache_fill = dst_data_capture;
 
 cache_mem_directmapped #(
 	.W_ADDR      (W_ADDR),
@@ -154,18 +166,26 @@ assign dst_htrans = {cache_state == S_CHECK && !cache_hit, 1'b0};
 assign dst_hready = dst_hready_resp;
 
 // Capture and route downstream response
-assign dst_data_ready = cache_state == S_MISS_WAIT && dst_hready_resp;
+assign dst_data_capture = cache_state == S_MISS_WAIT && dst_hready_resp && !dst_hresp;
 
 reg [W_DATA-1:0] dst_hrdata_reg;
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		dst_hrdata_reg <= {W_DATA{1'b0}};
-	end else if (dst_data_ready) begin
+	end else if (dst_data_capture) begin
 		dst_hrdata_reg <= dst_hrdata;
 	end
 end
 
 assign src_hrdata = cache_state == S_MISS_DONE ? dst_hrdata_reg : cache_rdata;
+
+assign src_hready_resp =
+	cache_state == S_IDLE ||
+	(cache_state == S_CHECK && cache_hit) ||
+	cache_state == S_MISS_DONE ||
+	cache_state == S_ERR_PH1;
+
+assign src_hresp = cache_state == S_ERR_PH0 || cache_state == S_ERR_PH1;
 
 // Tie off unused controls
 assign dst_hwrite = 1'b0;
@@ -175,8 +195,5 @@ assign dst_hburst = 3'b000;
 parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
 assign dst_hsize = BUS_SIZE_BYTES;
 assign dst_hwdata = {W_DATA{1'b0}};
-
-// todo handling of hresp
-assign src_hresp = 1'b0;
 
 endmodule
