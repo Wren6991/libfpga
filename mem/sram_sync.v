@@ -27,6 +27,7 @@ module sram_sync #(
 ) (
 	input wire                                     clk,
 	input wire [(BYTE_ENABLE ? WIDTH / 8 : 1)-1:0] wen,
+	input wire                                     ren,
 	input wire [ADDR_WIDTH-1:0]                    addr,
 	input wire [WIDTH-1:0]                         wdata,
 	output reg [WIDTH-1:0]                         rdata
@@ -56,7 +57,7 @@ SB_SPRAM256KA ram00 (
 	.DATAIN     (wdata[15:0]),
 	.MASKWREN   ({wen[1], wen[1], wen[0], wen[0]}),
 	.WREN       (wen[1] || wen[0]),
-	.CHIPSELECT (!addr[14]),
+	.CHIPSELECT ((wen[1] || wen[0] || ren) && !addr[14]),
 	.CLOCK      (clk),
 	.STANDBY    (1'b0),
 	.SLEEP      (1'b0),
@@ -69,7 +70,7 @@ SB_SPRAM256KA ram01 (
 	.DATAIN     (wdata[31:16]),
 	.MASKWREN   ({wen[3], wen[3], wen[2], wen[2]}),
 	.WREN       (wen[3] || wen[2]),
-	.CHIPSELECT (!addr[14]),
+	.CHIPSELECT ((wen[3] || wen[2] || ren) && !addr[14]),
 	.CLOCK      (clk),
 	.STANDBY    (1'b0),
 	.SLEEP      (1'b0),
@@ -82,7 +83,7 @@ SB_SPRAM256KA ram10 (
 	.DATAIN     (wdata[15:0]),
 	.MASKWREN   ({wen[1], wen[1], wen[0], wen[0]}),
 	.WREN       (wen[1] || wen[0]),
-	.CHIPSELECT (addr[14]),
+	.CHIPSELECT ((wen[1] || wen[0] || ren) && addr[14]),
 	.CLOCK      (clk),
 	.STANDBY    (1'b0),
 	.SLEEP      (1'b0),
@@ -95,7 +96,7 @@ SB_SPRAM256KA ram11 (
 	.DATAIN     (wdata[31:16]),
 	.MASKWREN   ({wen[3], wen[3], wen[2], wen[2]}),
 	.WREN       (wen[3] || wen[2]),
-	.CHIPSELECT (addr[14]),
+	.CHIPSELECT ((wen[3] || wen[2] || ren) && addr[14]),
 	.CLOCK      (clk),
 	.STANDBY    (1'b0),
 	.SLEEP      (1'b0),
@@ -105,7 +106,8 @@ SB_SPRAM256KA ram11 (
 
 reg chipselect_prev;
 always @ (posedge clk)
-	chipselect_prev <= addr[14];
+	if (|wen || ren)
+		chipselect_prev <= addr[14];
 
 always @ (*) rdata = chipselect_prev ? rdata1 : rdata0;
 
@@ -134,14 +136,16 @@ if (BYTE_ENABLE) begin: has_byte_enable
 		always @ (posedge clk) begin
 			if (wen[i])
 				mem[addr][8 * i +: 8] <= wdata[8 * i +: 8];
-			rdata[8 * i +: 8] <= mem[addr][8 * i +: 8];
+			if (ren)
+				rdata[8 * i +: 8] <= mem[addr][8 * i +: 8];
 		end
 	end
 end else begin: no_byte_enable
 	always @ (posedge clk) begin
 		if (wen)
 			mem[addr] <= wdata;
-		rdata <= mem[addr];
+		if (ren)
+			rdata <= mem[addr];
 	end
 end
 

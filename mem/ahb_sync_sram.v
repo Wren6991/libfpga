@@ -130,6 +130,7 @@ sram_sync #(
 ) sram (
 	.clk   (clk),
 	.wen   (sram_wen),
+	.ren   (ahb_read_aphase),
 	.addr  (sram_addr),
 	.wdata (sram_wdata),
 	.rdata (sram_rdata)
