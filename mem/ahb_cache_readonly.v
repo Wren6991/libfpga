@@ -161,7 +161,8 @@ cache_mem_directmapped #(
 // Downstream bus handling
 
 // Generate downstream request
-assign dst_haddr = addr_dphase;
+parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
+assign dst_haddr = addr_dphase & ({W_ADDR{1'b1}} << BUS_SIZE_BYTES);
 // Note relying on IDLE-to-OKAY requirement here:
 assign dst_htrans = {cache_state == S_CHECK && !cache_hit, 1'b0};
 assign dst_hready = dst_hready_resp;
@@ -193,7 +194,6 @@ assign dst_hwrite = 1'b0;
 assign dst_hmastlock = 1'b0;
 assign dst_hprot = 4'b0011;
 assign dst_hburst = 3'b000;
-parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
 assign dst_hsize = BUS_SIZE_BYTES;
 assign dst_hwdata = {W_DATA{1'b0}};
 
