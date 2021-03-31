@@ -18,6 +18,8 @@
 module ahb_cache_writeback #(
 	parameter W_ADDR = 32,
 	parameter W_DATA = 32,
+	parameter TMEM_PRELOAD = "",
+	parameter DMEM_PRELOAD = "",
 	parameter DEPTH =  256 // Capacity in bits = W_DATA * DEPTH
 ) (
 	// Globals
@@ -215,10 +217,12 @@ wire                cache_clean;
 wire [W_ADDR-1:0]   cache_dirty_addr;
 
 cache_mem_directmapped #(
-	.W_ADDR(W_ADDR),
-	.W_DATA(W_DATA),
-	.DEPTH(DEPTH),
-	.TRACK_DIRTY(1)
+	.W_ADDR       (W_ADDR),
+	.W_DATA       (W_DATA),
+	.DEPTH        (DEPTH),
+	.TMEM_PRELOAD (TMEM_PRELOAD),
+	.DMEM_PRELOAD (DMEM_PRELOAD),
+	.TRACK_DIRTY  (1)
 ) cache_mem (
 	.clk        (clk),
 	.rst_n      (rst_n),

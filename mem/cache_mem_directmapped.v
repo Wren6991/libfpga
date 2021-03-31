@@ -27,6 +27,8 @@ module cache_mem_directmapped #(
 	parameter DEPTH =  256,                // Capacity = W_DATA * DEPTH
 	parameter TRACK_DIRTY = 0,             // 1 if used in a writeback cache,
 	                                       // 0 for write-thru or read-only
+	parameter TMEM_PRELOAD = "",           // Tag memory hex preload file
+	parameter DMEM_PRELOAD = "",           // Data memory hex preload file
 
 	parameter W_OFFS = $clog2(W_DATA / 8), // do not modify
 	parameter W_INDEX = $clog2(DEPTH)      // do not modify
@@ -128,9 +130,10 @@ endgenerate
 // Important assumption is that rdata remains constant when ren is not asserted
 
 sram_sync #(
-	.WIDTH       (W_DATA),
-	.DEPTH       (DEPTH),
-	.BYTE_ENABLE (1)
+	.WIDTH        (W_DATA),
+	.DEPTH        (DEPTH),
+	.PRELOAD_FILE (DMEM_PRELOAD),
+	.BYTE_ENABLE  (1)
 ) dmem (
 	.clk   (clk),
 	.wen   (wen_modify | {W_DATA/8{wen_fill}}),
@@ -141,9 +144,10 @@ sram_sync #(
 );
 
 sram_sync #(
-	.WIDTH       (W_TMEM),
-	.DEPTH       (DEPTH),
-	.BYTE_ENABLE (0) // would be nice to have a bit-enable, but RmW works too :)
+	.WIDTH        (W_TMEM),
+	.DEPTH        (DEPTH),
+	.PRELOAD_FILE (TMEM_PRELOAD),
+	.BYTE_ENABLE  (0) // would be nice to have a bit-enable, but RmW works too :)
 ) tmem (
 	.clk   (clk),
 	.wen   (tmem_wen),

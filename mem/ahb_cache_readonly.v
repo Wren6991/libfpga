@@ -18,6 +18,8 @@
 module ahb_cache_readonly #(
 	parameter W_ADDR = 32,
 	parameter W_DATA = 32,
+	parameter TMEM_PRELOAD = "",
+	parameter DMEM_PRELOAD = "",
 	parameter DEPTH =  256 // Capacity in bits = W_DATA * DEPTH
 ) (
 	// Globals
@@ -137,10 +139,12 @@ assign cache_wdata = dst_hrdata;
 assign cache_fill = dst_data_capture;
 
 cache_mem_directmapped #(
-	.W_ADDR      (W_ADDR),
-	.W_DATA      (W_DATA),
-	.DEPTH       (DEPTH),
-	.TRACK_DIRTY (0)
+	.W_ADDR       (W_ADDR),
+	.W_DATA       (W_DATA),
+	.DEPTH        (DEPTH),
+	.TMEM_PRELOAD (TMEM_PRELOAD),
+	.DMEM_PRELOAD (DMEM_PRELOAD),
+	.TRACK_DIRTY  (0)
 ) cache_mem (
 	.clk        (clk),
 	.rst_n      (rst_n),
