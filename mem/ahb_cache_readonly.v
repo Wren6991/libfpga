@@ -59,8 +59,6 @@ module ahb_cache_readonly #(
 );
 
 localparam BURST_SIZE = W_LINE / W_DATA;
-parameter W_BURST_ADDR = $clog2(W_LINE / W_DATA);
-parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
 
 // ----------------------------------------------------------------------------
 // Cache control state machine
@@ -153,6 +151,9 @@ end
 // upstream. We don't return the data early, since this would also cause an
 // AHB-Lite master to drop its next address, but we can still save a cycle by
 // forwarding the registered data instead of reading back from the cache.
+
+parameter W_BURST_ADDR = $clog2(W_LINE / W_DATA);
+parameter [2:0] BUS_SIZE_BYTES = $clog2(W_DATA / 8);
 
 wire [W_ADDR-1:0] burst_addr_aphase;
 wire [W_ADDR-1:0] burst_addr_dphase;
