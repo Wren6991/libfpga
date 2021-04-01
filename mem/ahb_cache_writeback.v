@@ -145,7 +145,7 @@ always @ (posedge clk or negedge rst_n) begin
 				cache_state <= s_next_or_idle;
 			else if (cache_dirty)
 				cache_state <= BURST_SIZE > 1 ? S_READ_CLEAN_BURST : S_READ_CLEAN_LAST;
-			else 
+			else
 				cache_state <= BURST_SIZE > 1 ? S_READ_FILL_BURST : S_READ_FILL_LAST;
 		end
 		S_READ_CLEAN_BURST: if (dst_hready) begin
@@ -279,7 +279,7 @@ end else begin: has_fill_ctr
 		if (!rst_n) begin
 			burst_addr_ctr <= {W_BURST_ADDR{1'b0}};
 			burst_ctr_prev_matched_src <= 1'b0;
-		end else if (!dst_htrans[1]) begin
+		end else if (dst_hready && !dst_htrans[1]) begin
 			// Note HTRANS is decoded from our own registered state, we could list all
 			// the conditions here but it wouldn't achieve anything synthesis-wise.
 			burst_addr_ctr <= {W_BURST_ADDR{1'b0}};
@@ -322,6 +322,7 @@ cache_mem_directmapped #(
 	.W_ADDR       (W_ADDR),
 	.W_DATA       (W_DATA),
 	.DEPTH        (DEPTH),
+	.W_LINE       (W_LINE),
 	.TMEM_PRELOAD (TMEM_PRELOAD),
 	.DMEM_PRELOAD (DMEM_PRELOAD),
 	.TRACK_DIRTY  (1)
@@ -341,6 +342,7 @@ cache_mem_directmapped #(
 	.dirty_addr (cache_dirty_addr)
 );
 
+// Decode some state/controls to steer the cache controls
 reg dst_dphase_active;
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
@@ -350,15 +352,36 @@ always @ (posedge clk or negedge rst_n) begin
 	end
 end
 
+wire in_clean_aphase =
+	cache_dirty && !cache_hit && (
+		cache_state == S_WRITE_CHECK ||
+		cache_state == S_READ_CHECK) ||
+	cache_state == S_WRITE_CLEAN_BURST ||
+	cache_state == S_READ_CLEAN_BURST;
+
 wire maybe_modify_cache = cache_state == S_WRITE_CHECK || cache_state == S_WRITE_MODIFY;
 
+// Then wire up cache signals using these.
+
+// Note the in_clean_aphase term should really be burst_dirty_addr_aphase, BUT
+// for the cache read on clean-out we only care about the index bits, which by
+// definition are the same, since this is the dirty line which was aliased to
+// the same index that we just missed at. The hit status from the cache will
+// be wrong when using the fill address instead of the dirty address, but the
+// data will be correct. This saves muxing cache_dirty_addr (a tag mem output)
+// back into cache_addr. Note also this address is almost the same as
+// src_addr_dphase, and only differs in a few bits. This would *NOT* work for
+// a set-associative cache memory, as these may return different results for
+// matching indices but different tag queries.
 assign cache_addr =
+	in_clean_aphase    ? burst_fill_addr_aphase : // should be burst_dirty_addr_aphase, optimisation.
 	dst_dphase_active  ? burst_fill_addr_dphase :
 	maybe_modify_cache ? src_addr_dphase        : src_haddr;
 
 assign cache_wdata  = maybe_modify_cache ? src_hwdata : dst_hrdata;
 
 assign cache_ren = src_aphase ||
+	(cache_state == S_READ_CHECK || cache_state == S_WRITE_CHECK) && cache_dirty ||
 	cache_state == S_READ_CLEAN_BURST || cache_state == S_WRITE_CLEAN_BURST;
 
 assign cache_wen_fill = dst_hready && (
@@ -380,13 +403,6 @@ assign cache_clean = 1'b0; // for now! (lines become clean when filled, but we n
 
 // ----------------------------------------------------------------------------
 // Destination request
-
-wire in_clean_aphase = 
-	cache_dirty && (
-		cache_state == S_WRITE_CHECK ||
-		cache_state == S_READ_CHECK) ||
-	cache_state == S_WRITE_CLEAN_BURST ||
-	cache_state == S_READ_CLEAN_BURST;
 
 wire in_uncached_aphase = cache_state == S_UWRITE_APH || cache_state == S_UREAD_APH;
 
@@ -410,7 +426,7 @@ localparam HTRANS_IDLE = 2'b00;
 localparam HTRANS_NSEQ = 2'b10;
 localparam HTRANS_SEQ = 2'b11;
 
-assign dst_htrans = 
+assign dst_htrans =
 	dst_err_ph1 ? HTRANS_IDLE :	(
 		cache_state == S_READ_CHECK && !cache_hit ||
 		cache_state == S_READ_CLEAN_LAST ||
@@ -466,7 +482,7 @@ reg [W_DATA-1:0] dst_hrdata_reg;
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		dst_hrdata_reg <= {W_DATA{1'b0}};
-	end else if (dst_hready && dst_dphase_addr_matches_src_addr) begin
+	end else if (dst_hready && (dst_dphase_addr_matches_src_addr || cache_state == S_UREAD_DPH)) begin
 		dst_hrdata_reg <= dst_hrdata;
 	end
 end
