@@ -15,23 +15,39 @@
  *                                                                    *
  *********************************************************************/
 
-// This is just the memory component of a cache -- need to add an external
-// cache control state machine and bus interfaces to use this. This cache
+// This is just the memory component of a cache -- it's not useable without an
+// external cache control state machine and bus interfaces. This cache
 // captures the address input directly into the tag and data memories, and
 // provides both hit status and read data on the next cycle, so is suitable
-// for use on AHB-Lite with 0-wait-state hits.
+// for use on AHB-Lite with 0-wait-state read hits.
+//
+// The cache line size, W_LINE, must be a power of two multiple of W_DATA
+// (including 1 * W_DATA). For example, if:
+//
+//   W_ADDR = 32
+//   W_DATA = 32
+//   W_LINE = 128
+//   DEPTH  = 256
+//
+// This will implement a 4 kilobyte cache (256 lines of 128 bits), with a 256
+// deep by 21 wide tag memory (20 tag bits plus one valid bit), and a 1024
+// deep by 32 wide data memory. The cache controller would fill cache lines
+// with four consecutive word writes, which may come from a single downstream
+// data burst.
 
 module cache_mem_directmapped #(
-	parameter W_ADDR = 32,                 // Address bus width
-	parameter W_DATA = 32,                 // Data bus width
-	parameter DEPTH =  256,                // Capacity = W_DATA * DEPTH
-	parameter TRACK_DIRTY = 0,             // 1 if used in a writeback cache,
-	                                       // 0 for write-thru or read-only
-	parameter TMEM_PRELOAD = "",           // Tag memory hex preload file
-	parameter DMEM_PRELOAD = "",           // Data memory hex preload file
+	parameter W_ADDR = 32,       // Address bus width
+	parameter W_DATA = 32,       // Data bus width, data memory port width
+	parameter W_LINE = W_DATA,   // Amount of data associated with one tag
+	parameter DEPTH =  256,      // Capacity in bits = W_LINE * DEPTH
+	parameter TRACK_DIRTY = 0,   // 1 if used in a writeback cache,
+	                             // 0 for write-thru or read-only
+	parameter TMEM_PRELOAD = "", // Tag memory hex preload file
+	parameter DMEM_PRELOAD = "", // Data memory hex preload file
 
-	parameter W_OFFS = $clog2(W_DATA / 8), // do not modify
-	parameter W_INDEX = $clog2(DEPTH)      // do not modify
+	parameter W_OFFS = $clog2(W_LINE / 8),            // do not modify
+	parameter W_INDEX = $clog2(DEPTH),                // do not modify
+	parameter W_INDEX_EXTRA = $clog2(W_LINE / W_DATA) // do not modify
 ) (
 	input  wire                clk,
 	input  wire                rst_n,
@@ -129,16 +145,26 @@ endgenerate
 
 // Important assumption is that rdata remains constant when ren is not asserted
 
+wire [W_INDEX + W_INDEX_EXTRA -1:0] addr_d_index;
+
+generate
+if (W_LINE > W_DATA) begin: d_has_extra_index_bits
+	assign addr_d_index = {addr_index, addr_offs[W_OFFS-1 -: W_INDEX_EXTRA]};
+end else begin: d_no_extra_index_bits
+	assign addr_d_index = addr_index;
+end
+endgenerate
+
 sram_sync #(
 	.WIDTH        (W_DATA),
-	.DEPTH        (DEPTH),
+	.DEPTH        (DEPTH * W_LINE / W_DATA),
 	.PRELOAD_FILE (DMEM_PRELOAD),
 	.BYTE_ENABLE  (1)
 ) dmem (
 	.clk   (clk),
 	.wen   (wen_modify | {W_DATA/8{wen_fill}}),
 	.ren   (ren),
-	.addr  (addr_index),
+	.addr  (addr_d_index),
 	.wdata (wdata),
 	.rdata (rdata)
 );
