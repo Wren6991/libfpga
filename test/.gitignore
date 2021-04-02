@@ -1,0 +1,6 @@
+*.log
+*.smt2
+*.hex
+*.vcd
+*.smt2
+*.gtkw

@@ -380,9 +380,7 @@ assign cache_addr =
 
 assign cache_wdata  = maybe_modify_cache ? src_hwdata : dst_hrdata;
 
-assign cache_ren = src_aphase ||
-	(cache_state == S_READ_CHECK || cache_state == S_WRITE_CHECK) && cache_dirty ||
-	cache_state == S_READ_CLEAN_BURST || cache_state == S_WRITE_CLEAN_BURST;
+assign cache_ren = src_aphase || (in_clean_aphase && dst_hready);
 
 assign cache_wen_fill = dst_hready && (
 	cache_state == S_WRITE_FILL_BURST || cache_state == S_WRITE_FILL_LAST ||
