@@ -100,7 +100,6 @@ wire dst_data_capture;
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		cache_state <= S_IDLE;
-		src_addr_dphase <= {W_ADDR{1'b0}};
 	end else case (cache_state)
 		S_IDLE: begin
 			cache_state <= s_next_or_idle;
