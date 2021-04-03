@@ -17,7 +17,7 @@ module ahbl_to_apb #(
 	input  wire [3:0]         ahbls_hprot,
 	input  wire               ahbls_hmastlock,
 	input  wire [W_DATA-1:0]  ahbls_hwdata,
-	output wire [W_DATA-1:0]  ahbls_hrdata,
+	output reg  [W_DATA-1:0]  ahbls_hrdata,
 
 	output reg  [W_PADDR-1:0] apbm_paddr,
 	output reg                apbm_psel,
@@ -29,50 +29,83 @@ module ahbl_to_apb #(
 	input wire                apbm_pslverr 
 );
 
-localparam W_APB_STATE = 3;
-localparam STATE_RD0 = 3'h0;
-localparam STATE_RD1 = 3'h1;
-localparam STATE_WR0 = 3'h2;
-localparam STATE_WR1 = 3'h3;
-localparam STATE_IDLE = 3'h4;
+// Transfer state machine
+
+localparam W_APB_STATE = 4;
+localparam S_IDLE  = 4'd0; // Idle upstream dataphase
+localparam S_RD0   = 4'd1; // Downstream setup phase (cannot stall)
+localparam S_RD1   = 4'd2; // Downstream access phase (may stall or error)
+localparam S_RD2   = 4'd3; // Return data, capture next address phase
+localparam S_WR0   = 4'd4; // Sample hwdata
+localparam S_WR1   = 4'd5; // Downstream setup phase (cannot stall)
+localparam S_WR2   = 4'd6; // Downstream access phase (may stall or error)
+localparam S_WR3   = 4'd7; // Report success, capture next address phase
+localparam S_ERR0  = 4'd8; // AHBL error response, first cycle
+localparam S_ERR1  = 4'd9; // AHBL error response, and accept new address phase if not deasserted.
 
 reg [W_APB_STATE-1:0] apb_state;
-assign ahbls_hready_resp = ((apb_state == STATE_RD1 || apb_state == STATE_WR1) && apbm_pready) || apb_state == STATE_IDLE;
-assign ahbls_hrdata = apbm_prdata;
-assign ahbls_hresp = apbm_pslverr;
+
+wire [W_APB_STATE-1:0] aphase_to_dphase =
+	ahbls_htrans[1] &&  ahbls_hwrite ? S_WR0 :
+	ahbls_htrans[1] && !ahbls_hwrite ? S_RD0 : S_IDLE;
+
+always @ (posedge clk or negedge rst_n) begin
+	if (!rst_n) begin
+		apb_state <= S_IDLE;
+	end else case (apb_state)
+		S_IDLE: if (ahbls_hready) apb_state <= aphase_to_dphase;
+		S_WR0:                    apb_state <= S_WR1;
+		S_WR1:                    apb_state <= S_WR2;
+		S_WR2:  if (apbm_pready)  apb_state <= apbm_pslverr ? S_ERR0 : S_WR3;
+		S_WR3:                    apb_state <= aphase_to_dphase;
+		S_RD0:                    apb_state <= S_RD1;
+		S_RD1:  if (apbm_pready)  apb_state <= apbm_pslverr ? S_ERR0 : S_RD2;
+		S_RD2:                    apb_state <= aphase_to_dphase;
+		S_ERR0:                   apb_state <= S_ERR1;
+		S_ERR1:                   apb_state <= aphase_to_dphase;
+	endcase
+end
+
+// Downstream request
 
 always @ (*) begin
 	case (apb_state)
-		STATE_RD0: {apbm_psel, apbm_penable, apbm_pwrite} = 3'b100;
-		STATE_RD1: {apbm_psel, apbm_penable, apbm_pwrite} = 3'b110;
-		STATE_WR0: {apbm_psel, apbm_penable, apbm_pwrite} = 3'b101;
-		STATE_WR1: {apbm_psel, apbm_penable, apbm_pwrite} = 3'b111;
-		default:   {apbm_psel, apbm_penable, apbm_pwrite} = 3'b000;
+		S_RD0:   {apbm_psel, apbm_penable, apbm_pwrite} = 3'b100;
+		S_RD1:   {apbm_psel, apbm_penable, apbm_pwrite} = 3'b110;
+		S_WR1:   {apbm_psel, apbm_penable, apbm_pwrite} = 3'b101;
+		S_WR2:   {apbm_psel, apbm_penable, apbm_pwrite} = 3'b111;
+		default: {apbm_psel, apbm_penable, apbm_pwrite} = 3'b000;
 	endcase
 end
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
-		apb_state <= STATE_IDLE;
 		apbm_paddr <= {W_PADDR{1'b0}};
 		apbm_pwdata <= {W_DATA{1'b0}};
 	end else begin
-		if (apb_state == STATE_WR0) begin
+		if (ahbls_htrans[1] && ahbls_hready)
+			apbm_paddr <= ahbls_haddr[W_PADDR-1:0];
+		if (apb_state == S_WR0)
 			apbm_pwdata <= ahbls_hwdata;
-			apb_state <= STATE_WR1;
-		end
-		if (apb_state == STATE_RD0) begin
-			apb_state <= STATE_RD1;
-		end
-		if (ahbls_hready) begin
-			if (ahbls_htrans[1]) begin
-				apbm_paddr <= ahbls_haddr;
-				apb_state <= ahbls_hwrite ? STATE_WR0 : STATE_RD0;
-			end else begin
-				apb_state <= STATE_IDLE;
-			end
-		end
 	end
 end
+
+// Upstream response
+
+assign ahbls_hready_resp =
+	apb_state == S_IDLE ||
+	apb_state == S_RD2  ||
+	apb_state == S_WR3  ||
+	apb_state == S_ERR1;
+
+assign ahbls_hresp =
+	apb_state == S_ERR0 ||
+	apb_state == S_ERR1;
+
+always @ (posedge clk or negedge rst_n)
+	if (!rst_n)
+		ahbls_hrdata <= {W_DATA{1'b0}};
+	else if (apb_state == S_RD1 && apbm_pready)
+		ahbls_hrdata <= apbm_prdata;
 
 endmodule
