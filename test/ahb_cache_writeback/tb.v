@@ -26,12 +26,6 @@ localparam CACHE_DEPTH = 4;
 // Downstream SRAM, a few times bigger than the cache, nothing too extravagant.
 localparam MEM_SIZE_BYTES = 4 * (W_LINE * CACHE_DEPTH / 8);
 
-// Can cover more cache state space when write takes place later, and read is
-// further from write, but the BMC gets more expensive.
-localparam TEST_WRITE_CYCLE = 20;
-localparam TEST_READ_CYCLE = 55;
-
-
 // ----------------------------------------------------------------------------
 // DUT and RAM model
 
@@ -292,6 +286,12 @@ wire [W_ADDR-1:0] check_addr = $anyconst;
 wire [7:0]        check_data = $anyconst;
 always assume(test_addr < MEM_SIZE_BYTES);
 
+// Interested in a write-read pair to this byte, with no intervening writes.
+integer TEST_WRITE_CYCLE = $anyconst;
+integer TEST_READ_CYCLE = $anyconst;
+always assume(TEST_WRITE_CYCLE > 0);
+always assume(TEST_READ_CYCLE > TEST_WRITE_CYCLE);
+
 always @ (posedge clk) if (!rst_n) begin
 	if (cycle_ctr == TEST_WRITE_CYCLE) begin
 
@@ -314,7 +314,7 @@ always @ (posedge clk) if (!rst_n) begin
 			src_addr_dph > check_addr ||
 			src_addr_dph < check_addr - (1 << src_size_dph)
 		);
-			
+
 	end else if (cycle_ctr == TEST_READ_CYCLE) begin
 		
 		// Assume that, on some later cycle, a read to the cache takes place, which

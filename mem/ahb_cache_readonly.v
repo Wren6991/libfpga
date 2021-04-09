@@ -75,12 +75,8 @@ localparam S_ERR_PH1         = 3'd6;
 reg [W_STATE-1:0]    cache_state;
 reg [W_ADDR-1:0]     src_addr_dphase;
 
-wire [W_ADDR-1:0] cache_addr;
-wire [W_DATA-1:0] cache_wdata;
-wire [W_DATA-1:0] cache_rdata;
-wire              cache_ren;
-wire              cache_fill;
-wire              cache_hit;
+// Status signal from cache:
+wire cache_hit;
 
 wire src_aphase_active = src_hready && src_htrans[1] && !src_hwrite;
 
@@ -202,6 +198,13 @@ endgenerate
 // ----------------------------------------------------------------------------
 // Cache interfacing
 
+// For read-only cache, we never pass different addresses to tmem/dmem.
+wire [W_ADDR-1:0] cache_addr;
+wire [W_DATA-1:0] cache_wdata;
+wire [W_DATA-1:0] cache_rdata;
+wire              cache_ren;
+wire              cache_fill;
+
 assign cache_ren = src_aphase_active;
 assign cache_addr = cache_state == S_MISS_WAIT_BURST || cache_state == S_MISS_WAIT_LAST ? burst_addr_dphase : src_haddr;
 
@@ -219,17 +222,22 @@ cache_mem_directmapped #(
 ) cache_mem (
 	.clk        (clk),
 	.rst_n      (rst_n),
-	.addr       (cache_addr),
-	.wdata      (cache_wdata),
-	.rdata      (cache_rdata),
-	.ren        (cache_ren),
-	.wen_fill   (cache_fill),
-	.wen_modify ({W_DATA/8{1'b0}}),
-	.invalidate (1'b0),
-	.clean      (1'b0),
+
+	.t_addr     (cache_addr),
+	.t_ren      (cache_ren),
+	.t_wen      (cache_fill),
+	.t_wvalid   (1'b1),
+	.t_wdirty   (1'b0),
+
 	.hit        (cache_hit),
 	.dirty      (/* unused */),
-	.dirty_addr (/* unused */)
+	.dirty_addr (/* unused */),
+
+	.d_addr     (cache_addr),
+	.d_wen      ({W_DATA/8{cache_fill}}),
+	.d_ren      (cache_ren),
+	.wdata      (cache_wdata),
+	.rdata      (cache_rdata)
 );
 
 // ----------------------------------------------------------------------------

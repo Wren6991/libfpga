@@ -15,6 +15,8 @@
  *                                                                    *
  *********************************************************************/
 
+`default_nettype none
+
 module ahb_cache_writeback #(
 	parameter W_ADDR = 32,
 	parameter W_DATA = 32,
@@ -308,15 +310,18 @@ endgenerate
 // ----------------------------------------------------------------------------
 // Cache memory
 
-wire [W_ADDR-1:0]   cache_addr;
+wire [W_ADDR-1:0]   cache_t_addr;
+wire                cache_t_ren;
+wire                cache_t_wen;
+wire                cache_t_wvalid;
+wire                cache_t_wdirty;
+
+wire [W_ADDR-1:0]   cache_d_addr;
+wire                cache_d_ren;
+wire [W_DATA/8-1:0] cache_d_wen;
 wire [W_DATA-1:0]   cache_wdata;
 wire [W_DATA-1:0]   cache_rdata;
 
-wire                cache_ren;
-wire                cache_wen_fill;
-wire [W_DATA/8-1:0] cache_wen_modify;
-wire                cache_invalidate;
-wire                cache_clean;
 
 cache_mem_directmapped #(
 	.W_ADDR       (W_ADDR),
@@ -329,17 +334,21 @@ cache_mem_directmapped #(
 ) cache_mem (
 	.clk        (clk),
 	.rst_n      (rst_n),
-	.addr       (cache_addr),
-	.wdata      (cache_wdata),
-	.rdata      (cache_rdata),
-	.ren        (cache_ren),
-	.wen_fill   (cache_wen_fill),
-	.wen_modify (cache_wen_modify),
-	.invalidate (cache_invalidate),
-	.clean      (cache_clean),
+
+	.t_addr     (cache_t_addr),
+	.t_ren      (cache_t_ren),
+	.t_wen      (cache_t_wen),
+	.t_wvalid   (cache_t_wvalid),
+	.t_wdirty   (cache_t_wdirty),
 	.hit        (cache_hit),
 	.dirty      (cache_dirty),
-	.dirty_addr (cache_dirty_addr)
+	.dirty_addr (cache_dirty_addr),
+
+	.d_addr     (cache_d_addr),
+	.d_ren      (cache_d_ren),
+	.d_wen      (cache_d_wen),
+	.wdata      (cache_wdata),
+	.rdata      (cache_rdata)
 );
 
 // Decode some state/controls to steer the cache controls
@@ -361,7 +370,21 @@ wire in_clean_aphase =
 
 wire maybe_modify_cache = cache_state == S_WRITE_CHECK || cache_state == S_WRITE_MODIFY;
 
+wire cache_wen_modify = (cache_state == S_WRITE_CHECK && cache_hit) || cache_state == S_WRITE_MODIFY;
+
+wire cache_wen_fill = dst_hready && (
+	cache_state == S_WRITE_FILL_BURST || cache_state == S_WRITE_FILL_LAST ||
+	cache_state == S_READ_FILL_BURST || cache_state == S_READ_FILL_LAST
+);
+
 // Then wire up cache signals using these.
+
+assign cache_t_addr = maybe_modify_cache ? src_addr_dphase : src_haddr;
+assign cache_t_ren = src_aphase;
+assign cache_t_wen = cache_wen_modify || cache_wen_fill;
+
+assign cache_t_wvalid = cache_wen_modify || (cache_wen_fill && (cache_state == S_READ_FILL_LAST || cache_state == S_WRITE_FILL_LAST));
+assign cache_t_wdirty = cache_wen_modify;
 
 // Note the in_clean_aphase term should really be burst_dirty_addr_aphase, BUT
 // for the cache read on clean-out we only care about the index bits, which by
@@ -373,31 +396,20 @@ wire maybe_modify_cache = cache_state == S_WRITE_CHECK || cache_state == S_WRITE
 // src_addr_dphase, and only differs in a few bits. This would *NOT* work for
 // a set-associative cache memory, as these may return different results for
 // matching indices but different tag queries.
-assign cache_addr =
+assign cache_d_addr =
 	in_clean_aphase    ? burst_fill_addr_aphase : // should be burst_dirty_addr_aphase, optimisation.
 	dst_dphase_active  ? burst_fill_addr_dphase :
 	maybe_modify_cache ? src_addr_dphase        : src_haddr;
 
 assign cache_wdata  = maybe_modify_cache ? src_hwdata : dst_hrdata;
 
-assign cache_ren = src_aphase || (in_clean_aphase && dst_hready);
-
-assign cache_wen_fill = dst_hready && (
-	cache_state == S_WRITE_FILL_BURST || cache_state == S_WRITE_FILL_LAST ||
-	cache_state == S_READ_FILL_BURST || cache_state == S_READ_FILL_LAST
-);
+assign cache_d_ren = src_aphase || (in_clean_aphase && dst_hready);
 
 parameter LOG_BUS_WIDTH = $clog2(W_DATA / 8);
-
 wire [W_DATA/8-1:0] byte_mask_dphase = ~({W_DATA/8{1'b1}} << (1 << src_size_dphase))
 	<< src_addr_dphase[LOG_BUS_WIDTH-1:0];
 
-assign cache_wen_modify = byte_mask_dphase & {W_DATA/8{
-	(cache_state == S_WRITE_CHECK && cache_hit) || cache_state == S_WRITE_MODIFY}};
-
-assign cache_invalidate = 1'b0; // for now!
-
-assign cache_clean = 1'b0; // for now! (lines become clean when filled, but we never clean in-place.)
+assign cache_d_wen = {W_DATA/8{cache_wen_fill}} | (byte_mask_dphase & {W_DATA/8{cache_wen_modify}});;
 
 // ----------------------------------------------------------------------------
 // Destination request
