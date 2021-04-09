@@ -90,18 +90,21 @@ localparam S_WRITE_CLEAN_BURST = 5'd8;  // Writing back a dirty line before evic
 localparam S_WRITE_CLEAN_LAST  = 5'd9;
 localparam S_WRITE_FILL_BURST  = 5'd10; // Pulling in a clean line before modifying
 localparam S_WRITE_FILL_LAST   = 5'd11;
-localparam S_WRITE_MODIFY      = 5'd12; // Updating a valid line following a fill
-localparam S_WRITE_DONE        = 5'd13; // Generate AHB OKAY response and accept new src address phase
+localparam S_WRITE_MODIFY      = 5'd12; // Updating a valid line following a fill.
+localparam S_WRITE_DONE        = 5'd13; // Dummy state for AHB-OKAY and sampling next aphase, following fill.
 
-localparam S_UWRITE_APH        = 5'd14; // Uncached write downstream address phase
-localparam S_UWRITE_DPH        = 5'd15; // Uncached write downstream data phase
-localparam S_UWRITE_DONE       = 5'd16; // Uncached write completion (hready is registered)
-localparam S_UREAD_APH         = 5'd17; // Uncached read downstream address phase
-localparam S_UREAD_DPH         = 5'd18; // Uncached read downstream data phase
-localparam S_UREAD_DONE        = 5'd19; // Uncached read completion (hrdata is registered)
+localparam S_WRITE2READ_STALL  = 5'd14; // A read address phase fell through on the previous cycle due to
+                                        // write completion during CHECK. Read memories on this cycle.
 
-localparam S_ERR_PH0           = 5'd20; // Upstream error response phase 0
-localparam S_ERR_PH1           = 5'd21; // Upstream error response phase 1
+localparam S_UWRITE_APH        = 5'd15; // Uncached write downstream address phase
+localparam S_UWRITE_DPH        = 5'd16; // Uncached write downstream data phase
+localparam S_UWRITE_DONE       = 5'd17; // Uncached write completion (hready is registered)
+localparam S_UREAD_APH         = 5'd18; // Uncached read downstream address phase
+localparam S_UREAD_DPH         = 5'd19; // Uncached read downstream data phase
+localparam S_UREAD_DONE        = 5'd20; // Uncached read completion (hrdata is registered)
+
+localparam S_ERR_PH0           = 5'd21; // Upstream error response phase 0
+localparam S_ERR_PH1           = 5'd22; // Upstream error response phase 1
 
 reg [W_STATE-1:0]   cache_state;
 reg [W_ADDR-1:0]    src_addr_dphase;
@@ -170,7 +173,18 @@ always @ (posedge clk or negedge rst_n) begin
 		end
 		S_WRITE_CHECK: begin
 			if (cache_hit) begin
-				cache_state <= S_WRITE_DONE; // modify happens in this cycle
+				if (!cache_dirty) begin
+					// Tag memory needs writing, so can't accept new address phase this cycle.
+					cache_state <= S_WRITE_DONE;
+				end else if (src_aphase_read) begin
+					// Write takes place this cycle, read address phase falls through. We
+					// capture the address and perform the read during a read-dphase stall.
+					cache_state <= S_WRITE2READ_STALL;
+				end else begin
+					// Only data memory needs updating, and current aphase is write-or-idle,
+					// so advance to next transfer.
+					cache_state <= s_next_or_idle;
+				end
 			end else if (cache_dirty) begin
 				cache_state <= BURST_SIZE > 1 ? S_WRITE_CLEAN_BURST : S_WRITE_CLEAN_LAST;
 			end else begin
@@ -201,6 +215,9 @@ always @ (posedge clk or negedge rst_n) begin
 		S_WRITE_DONE: begin
 			// Dummy state required to avoid read/write address collision
 			cache_state <= s_next_or_idle;
+		end
+		S_WRITE2READ_STALL: begin
+			cache_state <= S_READ_CHECK;
 		end
 		S_UWRITE_APH: begin
 			// IDLE->OKAY means no stall or error
@@ -379,9 +396,12 @@ wire cache_wen_fill = dst_hready && (
 
 // Then wire up cache signals using these.
 
-assign cache_t_addr = maybe_modify_cache ? src_addr_dphase : src_haddr;
-assign cache_t_ren = src_aphase;
-assign cache_t_wen = cache_wen_modify || cache_wen_fill;
+assign cache_t_addr = 
+	maybe_modify_cache && !(cache_hit && cache_dirty) ? src_addr_dphase :
+	cache_state == S_WRITE2READ_STALL                 ? src_addr_dphase : src_haddr;
+
+assign cache_t_ren = src_aphase || cache_state == S_WRITE2READ_STALL;
+assign cache_t_wen = (cache_wen_modify && !(cache_hit && cache_dirty)) || cache_wen_fill;
 
 assign cache_t_wvalid = cache_wen_modify || (cache_wen_fill && (cache_state == S_READ_FILL_LAST || cache_state == S_WRITE_FILL_LAST));
 assign cache_t_wdirty = cache_wen_modify;
@@ -396,14 +416,22 @@ assign cache_t_wdirty = cache_wen_modify;
 // src_addr_dphase, and only differs in a few bits. This would *NOT* work for
 // a set-associative cache memory, as these may return different results for
 // matching indices but different tag queries.
+
 assign cache_d_addr =
-	in_clean_aphase    ? burst_fill_addr_aphase : // should be burst_dirty_addr_aphase, optimisation.
-	dst_dphase_active  ? burst_fill_addr_dphase :
-	maybe_modify_cache ? src_addr_dphase        : src_haddr;
+	in_clean_aphase                                         ? burst_fill_addr_aphase : // should be burst_dirty_addr_aphase, optimisation.
+	dst_dphase_active                                       ? burst_fill_addr_dphase :
+	maybe_modify_cache || cache_state == S_WRITE2READ_STALL ? src_addr_dphase        : src_haddr;
 
 assign cache_wdata  = maybe_modify_cache ? src_hwdata : dst_hrdata;
 
-assign cache_d_ren = src_aphase || (in_clean_aphase && dst_hready);
+// Note we can't send read aphase to dmem during a write dataphase, because
+// the port is already occupied. The WRITE2READ_STALL state gives us a second
+// crack at this address, during a read data phase stall cycle.
+
+assign cache_d_ren =
+	(src_aphase_read && cache_state != S_WRITE_CHECK) ||
+	cache_state == S_WRITE2READ_STALL ||
+	(in_clean_aphase && dst_hready);
 
 parameter LOG_BUS_WIDTH = $clog2(W_DATA / 8);
 wire [W_DATA/8-1:0] byte_mask_dphase = ~({W_DATA/8{1'b1}} << (1 << src_size_dphase))
@@ -504,6 +532,7 @@ assign src_hready_resp =
 	cache_state == S_IDLE ||
 	cache_state == S_READ_CHECK && cache_hit ||
 	cache_state == S_READ_DONE ||
+	cache_state == S_WRITE_CHECK && cache_hit && cache_dirty ||
 	cache_state == S_WRITE_DONE ||
 	cache_state == S_UREAD_DONE ||
 	cache_state == S_UWRITE_DONE ||

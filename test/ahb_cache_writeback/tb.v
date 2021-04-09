@@ -284,7 +284,7 @@ end
 // The byte of interest
 wire [W_ADDR-1:0] check_addr = $anyconst;
 wire [7:0]        check_data = $anyconst;
-always assume(test_addr < MEM_SIZE_BYTES);
+always assume(check_addr < MEM_SIZE_BYTES);
 
 // Interested in a write-read pair to this byte, with no intervening writes.
 integer TEST_WRITE_CYCLE = $anyconst;
@@ -304,7 +304,7 @@ always @ (posedge clk) if (!rst_n) begin
 		assume(src_addr_dph + (1 << src_size_dph) > check_addr);
 		assume(src_hwdata[check_addr % (W_DATA / 8) * 8 +:8] == check_data);
 		// Cacheable and bufferable attributes
-		assume(src_hwdatac_prot_dph[3:2] == 2'b11);
+		assume(src_prot_dph[3:2] == 2'b11);
 
 	end else if (cycle_ctr > TEST_WRITE_CYCLE && cycle_ctr < TEST_READ_CYCLE) begin
 

@@ -172,4 +172,11 @@ sram_sync #(
 	.rdata (tmem_rdata)
 );
 
+`ifdef FORMAL
+always @ (posedge clk) if (rst_n) begin
+	assert(!(t_wen && t_ren));
+	assert(!(|d_wen && d_ren));
+end
+`endif
+
 endmodule
