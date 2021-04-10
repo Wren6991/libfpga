@@ -47,7 +47,7 @@ ddr_out ddrp (
 
 	.d_rise (ring_ctr[0]),
 	.d_fall (ring_ctr[1]),
-	.e      (1),
+	.e      (1'b1),
 	.q      (qp)
 );
 
@@ -57,7 +57,7 @@ ddr_out ddrn (
 
 	.d_rise (ring_ctr[5]),
 	.d_fall (ring_ctr[6]),
-	.e      (1),
+	.e      (1'b1),
 	.q      (qn)
 );
 

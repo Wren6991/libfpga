@@ -74,7 +74,7 @@ ddr_out ddrp (
 
 	.d_rise (data_x5_delay[0]),
 	.d_fall (data_x5_delay[1]),
-	.e      (1),
+	.e      (1'b1),
 	.q      (qp)
 );
 
@@ -84,7 +84,7 @@ ddr_out ddrn (
 
 	.d_rise (data_x5_ndelay[0]),
 	.d_fall (data_x5_ndelay[1]),
-	.e      (1),
+	.e      (1'b1),
 	.q      (qn)
 );
 
