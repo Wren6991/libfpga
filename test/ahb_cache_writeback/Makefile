@@ -1,5 +1,5 @@
 DOTF=tb.f
 TOP=tb
-DEPTH=40
+DEPTH=60
 
 include $(SCRIPTS)/formal.mk

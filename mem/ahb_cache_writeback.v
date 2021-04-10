@@ -398,6 +398,7 @@ wire cache_wen_fill = dst_hready && (
 
 assign cache_t_addr = 
 	maybe_modify_cache && !(cache_hit && cache_dirty) ? src_addr_dphase :
+	dst_dphase_active                                 ? burst_fill_addr_dphase :
 	cache_state == S_WRITE2READ_STALL                 ? src_addr_dphase : src_haddr;
 
 assign cache_t_ren = src_aphase || cache_state == S_WRITE2READ_STALL;

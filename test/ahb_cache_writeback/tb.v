@@ -20,11 +20,11 @@ module tb;
 // Smol cache, hopefully enough to cover all the state of a larger one
 localparam W_ADDR = 32;
 localparam W_DATA = 32;
-localparam W_LINE = 2 * W_DATA;
-localparam CACHE_DEPTH = 4;
+localparam W_LINE = 4 * W_DATA;
+localparam CACHE_DEPTH = 16;
 
 // Downstream SRAM, a few times bigger than the cache, nothing too extravagant.
-localparam MEM_SIZE_BYTES = 4 * (W_LINE * CACHE_DEPTH / 8);
+localparam MEM_SIZE_BYTES = 16 * (W_LINE * CACHE_DEPTH / 8);
 
 // ----------------------------------------------------------------------------
 // DUT and RAM model
