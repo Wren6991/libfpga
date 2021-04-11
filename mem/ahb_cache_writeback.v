@@ -404,7 +404,9 @@ assign cache_t_addr =
 assign cache_t_ren = src_aphase || cache_state == S_WRITE2READ_STALL;
 assign cache_t_wen = (cache_wen_modify && !(cache_hit && cache_dirty)) || cache_wen_fill;
 
-assign cache_t_wvalid = cache_wen_modify || (cache_wen_fill && (cache_state == S_READ_FILL_LAST || cache_state == S_WRITE_FILL_LAST));
+// Make sure not to mark a cache line as valid if we get an error on the last beat of a burst
+assign cache_t_wvalid = cache_wen_modify || (cache_wen_fill && !dst_hresp &&
+	(cache_state == S_READ_FILL_LAST || cache_state == S_WRITE_FILL_LAST));
 assign cache_t_wdirty = cache_wen_modify;
 
 // Note the in_clean_aphase term should really be burst_dirty_addr_aphase, BUT
