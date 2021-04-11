@@ -20,11 +20,11 @@ module tb;
 // Smol cache, hopefully enough to cover all the state of a larger one
 localparam W_ADDR = 32;
 localparam W_DATA = 32;
-localparam W_LINE = 4 * W_DATA;
-localparam CACHE_DEPTH = 16;
+localparam W_LINE = 2 * W_DATA;
+localparam CACHE_DEPTH = 4;
 
 // Downstream SRAM, a few times bigger than the cache, nothing too extravagant.
-localparam MEM_SIZE_BYTES = 16 * (W_LINE * CACHE_DEPTH / 8);
+localparam MEM_SIZE_BYTES = 4 * (W_LINE * CACHE_DEPTH / 8);
 
 // ----------------------------------------------------------------------------
 // DUT and RAM model
@@ -291,13 +291,20 @@ integer TEST_WRITE_CYCLE = $anyconst;
 integer TEST_READ_CYCLE = $anyconst;
 always assume(TEST_WRITE_CYCLE > 0);
 always assume(TEST_READ_CYCLE > TEST_WRITE_CYCLE);
+always assume(TEST_READ_CYCLE < 1000);
 
-always @ (posedge clk) if (!rst_n) begin
-	if (cycle_ctr == TEST_WRITE_CYCLE) begin
+// For waves
+wire write_this_cycle = cycle_ctr == TEST_WRITE_CYCLE;
+wire intervening_cycle = cycle_ctr > TEST_WRITE_CYCLE && cycle_ctr < TEST_READ_CYCLE;
+wire read_this_cycle = cycle_ctr == TEST_READ_CYCLE;
 
-		// Assume that, on some cycle, a write to the cache takes place, which
-		// overlaps some particular byte in memory.
+always @ (posedge clk) if (rst_n) begin
+	if (write_this_cycle) begin
+
+		// Assume that, on some cycle, a *successful* cached write to the cache
+		// takes place, which overlaps some particular byte in memory.
 		assume(src_hready);
+		assume(!src_hresp);
 		assume(src_active_dph);
 		assume(src_write_dph);
 		assume(src_addr_dph <= check_addr);
@@ -306,20 +313,21 @@ always @ (posedge clk) if (!rst_n) begin
 		// Cacheable and bufferable attributes
 		assume(src_prot_dph[3:2] == 2'b11);
 
-	end else if (cycle_ctr > TEST_WRITE_CYCLE && cycle_ctr < TEST_READ_CYCLE) begin
+	end else if (intervening_cycle) begin
 
 		// Assume that there are no intervening cache writes to the same byte before
 		// the point we observe it
 		if (src_active_dph && src_write_dph) assume(
-			src_addr_dph > check_addr ||
-			src_addr_dph < check_addr - (1 << src_size_dph)
+			$signed(src_addr_dph) > $signed(check_addr) ||
+			$signed(src_addr_dph) < $signed(check_addr) - (1 << src_size_dph)
 		);
 
-	end else if (cycle_ctr == TEST_READ_CYCLE) begin
+	end else if (read_this_cycle) begin
 		
-		// Assume that, on some later cycle, a read to the cache takes place, which
+		// Assume that, on some later cycle, a read successful cached read takes place, which
 		// overlaps the same byte (though may not have the same size/alignment).
 		assume(src_hready);
+		assume(!src_hresp);
 		assume(src_active_dph);
 		assume(!src_write_dph);
 		assume(src_addr_dph <= check_addr);
