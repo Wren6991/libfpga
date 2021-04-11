@@ -254,9 +254,6 @@ always @ (posedge clk) if (!first_cyc) begin: dst_ahbl_resp_properties
 	// figure out it can't hold the bus stall forever.
 end
 
-// FIXME we don't care about error-related stuff right now
-always assume (!dst_hresp);
-
 // ----------------------------------------------------------------------------
 // Memory validity check (the most important property)
 

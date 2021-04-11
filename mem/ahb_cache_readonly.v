@@ -226,7 +226,7 @@ cache_mem_directmapped #(
 	.t_addr     (cache_addr),
 	.t_ren      (cache_ren),
 	.t_wen      (cache_fill),
-	.t_wvalid   (1'b1),
+	.t_wvalid   (!dst_hresp),
 	.t_wdirty   (1'b0),
 
 	.hit        (cache_hit),
@@ -274,7 +274,7 @@ assign dst_hready = dst_hready_resp;
 
 assign dst_data_capture = (
 	cache_state == S_MISS_WAIT_BURST ||
-	cache_state == S_MISS_WAIT_LAST) && dst_hready_resp && !dst_hresp;
+	cache_state == S_MISS_WAIT_LAST) && dst_hready_resp;
 
 reg [W_DATA-1:0] dst_hrdata_reg;
 always @ (posedge clk or negedge rst_n) begin
