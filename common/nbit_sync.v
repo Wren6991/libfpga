@@ -70,7 +70,7 @@ always @ (posedge rclk or negedge rrst_n) begin
 		if (rack && !rvalid[0]) begin
 			rack <= 1'b0;
 		end else if (rvalid[0] && !rack) begin
-			rack <= 1'b0;
+			rack <= 1'b1;
 			rdata <= cross_reg;
 		end
 	end
