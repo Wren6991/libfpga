@@ -36,8 +36,11 @@ module sync_fifo #(
 	output reg  [W_LEVEL-1:0] level
 );
 
+// valid has an extra bit which should remain constant 0, and mem has an extra
+// entry which is wired through to w_data. This is just to handle the loop
+// boundary condition without tools complaining.
 reg [WIDTH-1:0] mem [0:DEPTH];
-reg [DEPTH-1:0] valid;
+reg [DEPTH:0]   valid;
 
 // ----------------------------------------------------------------------------
 // Control and datapath
@@ -47,7 +50,7 @@ wire pop = r_en && !empty;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
-		valid <= {DEPTH{1'b0}};
+		valid <= {DEPTH+1{1'b0}};
 	end else if (w_en || r_en) begin
 		// 2 LUTs 1 FF per flag, all FFs have same clke
 		valid <= (valid << push | {{DEPTH-1{1'b0}}, push}) >> pop;
