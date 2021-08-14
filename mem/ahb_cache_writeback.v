@@ -18,6 +18,7 @@
 `default_nettype none
 
 module ahb_cache_writeback #(
+	parameter N_WAYS = 1,
 	parameter W_ADDR = 32,
 	parameter W_DATA = 32,
 	// Cache line width must be be power of two times W_DATA. The cache will fill
@@ -25,7 +26,7 @@ module ahb_cache_writeback #(
 	parameter W_LINE = W_DATA,
 	parameter TMEM_PRELOAD = "",
 	parameter DMEM_PRELOAD = "",
-	parameter DEPTH =  256 // Capacity in bits = W_DATA * DEPTH
+	parameter DEPTH =  256 // Capacity in bits = W_LINE * N_WAYS * DEPTH
 ) (
 	// Globals
 	input wire                clk,
@@ -340,7 +341,8 @@ wire [W_DATA-1:0]   cache_wdata;
 wire [W_DATA-1:0]   cache_rdata;
 
 
-cache_mem_directmapped #(
+cache_mem_set_associative #(
+	.N_WAYS       (N_WAYS),
 	.W_ADDR       (W_ADDR),
 	.W_DATA       (W_DATA),
 	.DEPTH        (DEPTH),
@@ -349,23 +351,26 @@ cache_mem_directmapped #(
 	.DMEM_PRELOAD (DMEM_PRELOAD),
 	.TRACK_DIRTY  (1)
 ) cache_mem (
-	.clk        (clk),
-	.rst_n      (rst_n),
+	.clk                (clk),
+	.rst_n              (rst_n),
 
-	.t_addr     (cache_t_addr),
-	.t_ren      (cache_t_ren),
-	.t_wen      (cache_t_wen),
-	.t_wvalid   (cache_t_wvalid),
-	.t_wdirty   (cache_t_wdirty),
-	.hit        (cache_hit),
-	.dirty      (cache_dirty),
-	.dirty_addr (cache_dirty_addr),
+	.t_addr             (cache_t_addr),
+	.t_ren              (cache_t_ren),
+	.t_wen              (cache_t_wen),
+	.t_wvalid           (cache_t_wvalid),
+	.t_wdirty           (cache_t_wdirty),
+	.hit                (cache_hit),
+	.dirty              (cache_dirty),
+	.dirty_addr         (cache_dirty_addr),
 
-	.d_addr     (cache_d_addr),
-	.d_ren      (cache_d_ren),
-	.d_wen      (cache_d_wen),
-	.wdata      (cache_wdata),
-	.rdata      (cache_rdata)
+	.way_mask_direct    (1'b1),
+	.way_mask_direct_en (1'b0),
+
+	.d_addr             (cache_d_addr),
+	.d_ren              (cache_d_ren),
+	.d_wen              (cache_d_wen),
+	.wdata              (cache_wdata),
+	.rdata              (cache_rdata)
 );
 
 // Decode some state/controls to steer the cache controls
@@ -409,21 +414,10 @@ assign cache_t_wvalid = cache_wen_modify || (cache_wen_fill && !dst_hresp &&
 	(cache_state == S_READ_FILL_LAST || cache_state == S_WRITE_FILL_LAST));
 assign cache_t_wdirty = cache_wen_modify;
 
-// Note the in_clean_aphase term should really be burst_dirty_addr_aphase, BUT
-// for the cache read on clean-out we only care about the index bits, which by
-// definition are the same, since this is the dirty line which was aliased to
-// the same index that we just missed at. The hit status from the cache will
-// be wrong when using the fill address instead of the dirty address, but the
-// data will be correct. This saves muxing cache_dirty_addr (a tag mem output)
-// back into cache_addr. Note also this address is almost the same as
-// src_addr_dphase, and only differs in a few bits. This would *NOT* work for
-// a set-associative cache memory, as these may return different results for
-// matching indices but different tag queries.
-
 assign cache_d_addr =
-	in_clean_aphase                                         ? burst_fill_addr_aphase : // should be burst_dirty_addr_aphase, optimisation.
-	dst_dphase_active                                       ? burst_fill_addr_dphase :
-	maybe_modify_cache || cache_state == S_WRITE2READ_STALL ? src_addr_dphase        : src_haddr;
+	in_clean_aphase                                         ? burst_dirty_addr_aphase :
+	dst_dphase_active                                       ? burst_fill_addr_dphase  :
+	maybe_modify_cache || cache_state == S_WRITE2READ_STALL ? src_addr_dphase         : src_haddr;
 
 assign cache_wdata  = maybe_modify_cache ? src_hwdata : dst_hrdata;
 

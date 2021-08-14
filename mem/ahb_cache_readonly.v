@@ -16,6 +16,7 @@
  *********************************************************************/
 
 module ahb_cache_readonly #(
+	parameter N_WAYS = 1,
 	parameter W_ADDR = 32,
 	parameter W_DATA = 32,
 	// Cache line width must be be power of two times W_DATA. The cache will fill
@@ -23,7 +24,7 @@ module ahb_cache_readonly #(
 	parameter W_LINE = W_DATA,
 	parameter TMEM_PRELOAD = "",
 	parameter DMEM_PRELOAD = "",
-	parameter DEPTH =  256 // Capacity in bits = DEPTH * W_CACHELINE.
+	parameter DEPTH =  256 // Capacity in bits = DEPTH * W_LINE * N_WAYS.
 ) (
 	// Globals
 	input wire                clk,
@@ -211,7 +212,8 @@ assign cache_addr = cache_state == S_MISS_WAIT_BURST || cache_state == S_MISS_WA
 assign cache_wdata = dst_hrdata;
 assign cache_fill = dst_data_capture;
 
-cache_mem_directmapped #(
+cache_mem_set_associative #(
+	.N_WAYS       (N_WAYS),
 	.W_ADDR       (W_ADDR),
 	.W_DATA       (W_DATA),
 	.W_LINE       (W_LINE),
@@ -220,24 +222,27 @@ cache_mem_directmapped #(
 	.DMEM_PRELOAD (DMEM_PRELOAD),
 	.TRACK_DIRTY  (0)
 ) cache_mem (
-	.clk        (clk),
-	.rst_n      (rst_n),
+	.clk                (clk),
+	.rst_n              (rst_n),
 
-	.t_addr     (cache_addr),
-	.t_ren      (cache_ren),
-	.t_wen      (cache_fill),
-	.t_wvalid   (!dst_hresp),
-	.t_wdirty   (1'b0),
+	.t_addr             (cache_addr),
+	.t_ren              (cache_ren),
+	.t_wen              (cache_fill),
+	.t_wvalid           (!dst_hresp),
+	.t_wdirty           (1'b0),
 
-	.hit        (cache_hit),
-	.dirty      (/* unused */),
-	.dirty_addr (/* unused */),
+	.way_mask_direct_en (1'b0),
+	.way_mask_direct    (1'b0),
 
-	.d_addr     (cache_addr),
-	.d_wen      ({W_DATA/8{cache_fill}}),
-	.d_ren      (cache_ren),
-	.wdata      (cache_wdata),
-	.rdata      (cache_rdata)
+	.hit                (cache_hit),
+	.dirty              (/* unused */),
+	.dirty_addr         (/* unused */),
+
+	.d_addr             (cache_addr),
+	.d_wen              ({W_DATA/8{cache_fill}}),
+	.d_ren              (cache_ren),
+	.wdata              (cache_wdata),
+	.rdata              (cache_rdata)
 );
 
 // ----------------------------------------------------------------------------
