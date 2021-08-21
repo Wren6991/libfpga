@@ -1,0 +1,27 @@
+name: xip
+bus: apb
+addr: 16
+data: 32
+regs:
+  - name: csr
+    info: Control and status register
+    bits:
+      - {b: 0, name: direct, access: rw, info: "If 1, enable direct mode. Chip
+        select is held asserted until direct mode is disabled, and individual
+        bytes can be written to TXDATA and then read from RXDATA. If you
+        enable direct mode whilst executing from XIP, you're gonna have a bad
+        time."}
+      - {b: 1, name: busy, access: rov, info: "Reads as 1 when a direct mode
+        transfer is in progress. Note a direct mode transfer takes precisely
+        16 cycles (in between the APB write and readback, so at least 19
+        cycles total), so you could insert a precise delay in your code
+        instead of polling this bit."}
+  - name: txdata
+    info: Direct mode transmit data
+    bits:
+      - {b: [7, 0], access: wf}
+  - name: rxdata
+    info: Direct mode receive data
+    bits:
+      - {b: [7, 0], access: rf}
+
