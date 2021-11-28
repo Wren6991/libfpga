@@ -113,15 +113,22 @@ end
 
 reg [N_PORTS-1:0] slave_sel_d;
 reg decode_err_d;
+reg err_ph1;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		slave_sel_d <= {N_PORTS{1'b0}};
 		decode_err_d <= 1'b0;
+		err_ph1 <= 1'b0;
 	end else begin
 		if (src_hready) begin
 			slave_sel_d <= slave_sel_a;
 			decode_err_d <= decode_err_a;
+		end
+		if (decode_err_d) begin
+			err_ph1 <= !err_ph1;
+		end else begin
+			err_ph1 <= 1'b0;
 		end
 	end
 end
@@ -145,7 +152,8 @@ onehot_mux #(
 // behaved masters.
 // One rule to avoid this is to *only use data-phase state for muxing*
 
-assign src_hready_resp = !slave_sel_d || |(slave_sel_d & dst_hready_resp);
+assign src_hready_resp = (!slave_sel_d && (err_ph1 || !decode_err_d)) ||
+	|(slave_sel_d & dst_hready_resp);
 assign src_hresp = decode_err_d || |(slave_sel_d & dst_hresp);
 
 endmodule
