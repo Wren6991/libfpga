@@ -1,0 +1,45 @@
+name: sdram
+bus: apb
+addr: 16
+data: 32
+regs:
+  - name: csr
+    info: Control and status register
+    bits:
+      - {b: 0, name: en, access: rw, info: "Enable bus access to SDRAM, and start issuing refresh commands. Should not be asserted until after the SDRAM initialisation sequence has been issued (e.g. a PrechargeAll, some AutoRefreshes, and a ModeRegisterSet)."}
+      - {b: 1, name: pu, access: rw, info: "Power up (start driving clock and assert clock enable). Must be asserted before using CMD_DIRECT for start-of-day initialisation."}
+  - name: time
+    info: |
+      Configure SDRAM timing parameters. All times given in clock cycles.
+      Unless otherwise specified, the minimum timing is 1 cycle, and this is
+      encoded by a value of *0* in the relevant register field. Your SDRAM
+      datasheet should provide these timings.
+    bits:
+      - {b: [2, 0], name: rc, access: rw,
+        info: "tRC: Row cycle time, row activate to row activate (same bank). tRFC, refresh cycle time, is assumed to be equal to this value. If these values are different in your datasheet, take the larger one."}
+      - {b: [6, 4], name: rcd, access: rw,
+        info: "tRCD: RAS to CAS delay (same bank)."}
+      - {b: [10, 8], name: rp, access: rw,
+        info: "tRP: Precharge to refresh/row activate command (same bank)."}
+      - {b: [14, 12], name: rrd, access: rw,
+        info: "tRRD: Row activate to row activate delay (different banks)."}
+      - {b: [18, 16], name: ras, access: rw,
+        info: "tRAS: Row activate to precharge time (same bank)."}
+      - {b: [22, 20], name: wr,  access: rw,
+        info: "tWR: Write recovery time. Last Write data to Precharge (same bank)"}
+      - {b: [25, 24], name: cas, access: rw,
+        info: "CAS latency. Should match the value programmed into SDRAM mode register."}
+  - name: refresh
+    info: "tREFI: Average refresh interval, in SDRAM clock cycles."
+    bits:
+      - {b: [11, 0], access: rw}
+  - name: cmd_direct
+    info: |
+      Write to assert a command directly onto SDRAM e.g. Load Mode Register.
+      Only to be used when bus is idle and CSR_EN is low (e.g. for start-of-day initialisation)
+    bits:
+      - {b: 0, name: we_n, access: wf}
+      - {b: 1, name: cas_n, access: wf}
+      - {b: 2, name: ras_n, access: wf}
+      - {b: [15, 3], name: addr, access: wf}
+      - {b: [29, 28], name: ba, access: wf}
