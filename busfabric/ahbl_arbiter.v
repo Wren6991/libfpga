@@ -30,10 +30,11 @@
 
 
 module ahbl_arbiter #(
-	parameter N_PORTS = 2,
-	parameter W_ADDR = 32,
-	parameter W_DATA = 32,
-	parameter CONN_MASK = {N_PORTS{1'b1}}
+	parameter N_PORTS          = 2,
+	parameter W_ADDR           = 32,
+	parameter W_DATA           = 32,
+	parameter CONN_MASK        = {N_PORTS{1'b1}},
+	parameter FAIR_ARBITRATION = 0
 ) (
 	// Global signals
 	input wire                       clk,
@@ -123,12 +124,44 @@ always @ (*) begin
 	end
 end
 
-onehot_priority #(
-	.W_INPUT(N_PORTS)
-) arb_priority (
-	.in(mast_req_a),
-	.out(mast_gnt_a)
-);
+generate
+if (FAIR_ARBITRATION) begin: fair_priority
+
+	// Give a golden ticket to each request slot for one transfer at a time.
+	// If the golden request is present, it's boosted over all others. This
+	// has only one useful property: all requests are eventually served.
+	reg [N_PORTS-1:0] golden_ticket;
+	always @ (posedge clk or negedge rst_n) begin
+		if (!rst_n) begin
+			golden_ticket <= {{N_PORTS-1{1'b0}}, 1'b1};
+		end else if (dst_hready_resp) begin
+			golden_ticket <= {golden_ticket[N_PORTS-2:0], golden_ticket[N_PORTS-1]};
+		end
+	end
+
+	wire [2*N_PORTS-1:0] req_full = {mast_req_a, mast_req_a & golden_ticket};
+	wire [2*N_PORTS-1:0] gnt_full;
+
+	onehot_priority #(
+		.W_INPUT(2 * N_PORTS)
+	) arb_priority (
+		.in  (req_full),
+		.out (gnt_full)
+	);
+
+	assign mast_gnt_a = gnt_full[0 +: N_PORTS] | gnt_full[N_PORTS +: N_PORTS];
+
+end else begin: strict_priority
+
+	onehot_priority #(
+		.W_INPUT(N_PORTS)
+	) arb_priority (
+		.in  (mast_req_a),
+		.out (mast_gnt_a)
+	);
+
+end
+endgenerate
 
 // AHB State Machine
 
