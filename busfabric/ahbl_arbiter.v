@@ -28,6 +28,7 @@
 
 // TODO: no burst support!
 
+`default_nettype none
 
 module ahbl_arbiter #(
 	parameter N_PORTS          = 2,
@@ -44,6 +45,7 @@ module ahbl_arbiter #(
 	input  wire [N_PORTS-1:0]        src_hready,
 	output wire [N_PORTS-1:0]        src_hready_resp,
 	output wire [N_PORTS-1:0]        src_hresp,
+	output wire [N_PORTS-1:0]        src_hexokay,
 	input  wire [N_PORTS*W_ADDR-1:0] src_haddr,
 	input  wire [N_PORTS-1:0]        src_hwrite,
 	input  wire [N_PORTS*2-1:0]      src_htrans,
@@ -51,6 +53,7 @@ module ahbl_arbiter #(
 	input  wire [N_PORTS*3-1:0]      src_hburst,
 	input  wire [N_PORTS*4-1:0]      src_hprot,
 	input  wire [N_PORTS-1:0]        src_hmastlock,
+	input  wire [N_PORTS-1:0]        src_hexcl,
 	input  wire [N_PORTS*W_DATA-1:0] src_hwdata,
 	output wire [N_PORTS*W_DATA-1:0] src_hrdata,
 
@@ -58,6 +61,7 @@ module ahbl_arbiter #(
 	output wire                      dst_hready,
 	input  wire                      dst_hready_resp,
 	input  wire                      dst_hresp,
+	input  wire                      dst_hexokay,
 	output wire [W_ADDR-1:0]         dst_haddr,
 	output wire                      dst_hwrite,
 	output wire [1:0]                dst_htrans,
@@ -65,6 +69,7 @@ module ahbl_arbiter #(
 	output wire [2:0]                dst_hburst,
 	output wire [3:0]                dst_hprot,
 	output wire                      dst_hmastlock,
+	output wire                      dst_hexcl,
 	output wire [W_DATA-1:0]         dst_hwdata,
 	input  wire [W_DATA-1:0]         dst_hrdata
 );
@@ -81,6 +86,7 @@ reg [2:0]                buf_hsize      [0:N_PORTS-1];
 reg [2:0]                buf_hburst     [0:N_PORTS-1];
 reg [3:0]                buf_hprot      [0:N_PORTS-1];
 reg                      buf_hmastlock  [0:N_PORTS-1];
+reg                      buf_hexcl      [0:N_PORTS-1];
 
 reg [N_PORTS*W_ADDR-1:0] actual_haddr;
 reg [N_PORTS-1:0]        actual_hwrite;
@@ -89,6 +95,8 @@ reg [N_PORTS*3-1:0]      actual_hsize;
 reg [N_PORTS*3-1:0]      actual_hburst;
 reg [N_PORTS*4-1:0]      actual_hprot;
 reg [N_PORTS-1:0]        actual_hmastlock;
+reg [N_PORTS-1:0]        actual_hexcl;
+
 
 always @ (*) begin
 	for (i = 0; i < N_PORTS; i = i + 1) begin
@@ -100,6 +108,7 @@ always @ (*) begin
 			actual_hburst    [i * 3 +: 3]           = buf_hburst    [i];
 			actual_hprot     [i * 4 +: 4]           = buf_hprot     [i];
 			actual_hmastlock [i]                    = buf_hmastlock [i];
+			actual_hexcl     [i]                    = buf_hexcl     [i];
 		end else begin
 			actual_haddr     [i * W_ADDR +: W_ADDR] = src_haddr     [i * W_ADDR +: W_ADDR];
 			actual_hwrite    [i]                    = src_hwrite    [i];
@@ -108,6 +117,7 @@ always @ (*) begin
 			actual_hburst    [i * 3 +: 3]           = src_hburst    [i * 3 +: 3];
 			actual_hprot     [i * 4 +: 4]           = src_hprot     [i * 4 +: 4];
 			actual_hmastlock [i]                    = src_hmastlock [i];
+			actual_hexcl     [i]                    = src_hexcl     [i];
 		end
 	end
 end
@@ -183,6 +193,7 @@ always @ (posedge clk or negedge rst_n) begin
 			buf_hburst[i]    <= 3'h0;
 			buf_hprot[i]     <= 3'h0;
 			buf_hmastlock[i] <= 1'b0;
+			buf_hexcl[i]     <= 1'b0;
 		end
 	end else begin
 		if (dst_hready) begin
@@ -199,6 +210,7 @@ always @ (posedge clk or negedge rst_n) begin
 				buf_hburst   [i] <= src_hburst   [i * 3 +: 3];
 				buf_hprot    [i] <= src_hprot    [i * 4 +: 4];
 				buf_hmastlock[i] <= src_hmastlock[i];
+				buf_hexcl    [i] <= src_hexcl    [i];
 			end
 		end
 	end
@@ -215,6 +227,7 @@ wire [N_PORTS-1:0] mast_in_dphase = buf_valid | mast_gnt_d;
 // - the master is in data phase with both arbiter and slave, and slave is ready
 assign src_hready_resp = ~mast_in_dphase | (mast_gnt_d & {N_PORTS{dst_hready_resp}});
 assign src_hresp = mast_gnt_d & {N_PORTS{dst_hresp}};
+assign src_hexokay = mast_gnt_d & {N_PORTS{dst_hexokay}};
 assign src_hrdata = {N_PORTS{dst_hrdata}};
 
 onehot_mux #(
@@ -289,6 +302,15 @@ onehot_mux #(
 	.in(actual_hmastlock),
 	.sel(mast_gnt_a),
 	.out(dst_hmastlock)
+);
+
+onehot_mux #(
+	.W_INPUT(1),
+	.N_INPUTS(N_PORTS)
+) mux_hexcl (
+	.in(actual_hexcl),
+	.sel(mast_gnt_a),
+	.out(dst_hexcl)
 );
 
 endmodule

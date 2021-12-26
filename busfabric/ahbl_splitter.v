@@ -25,6 +25,8 @@
 
 // TODO: burst support
 
+`default_nettype none
+
 module ahbl_splitter #(
 	parameter N_PORTS = 2,
 	parameter W_ADDR = 32,
@@ -41,6 +43,7 @@ module ahbl_splitter #(
 	input  wire                      src_hready,
 	output wire                      src_hready_resp,
 	output wire                      src_hresp,
+	output wire                      src_hexokay,
 	input  wire [W_ADDR-1:0]         src_haddr,
 	input  wire                      src_hwrite,
 	input  wire [1:0]                src_htrans,
@@ -48,6 +51,7 @@ module ahbl_splitter #(
 	input  wire [2:0]                src_hburst,
 	input  wire [3:0]                src_hprot,
 	input  wire                      src_hmastlock,
+	input  wire                      src_hexcl,
 	input  wire [W_DATA-1:0]         src_hwdata,
 	output wire [W_DATA-1:0]         src_hrdata,
 
@@ -55,6 +59,7 @@ module ahbl_splitter #(
 	output wire [N_PORTS-1:0]        dst_hready,
 	input  wire [N_PORTS-1:0]        dst_hready_resp,
 	input  wire [N_PORTS-1:0]        dst_hresp,
+	input  wire [N_PORTS-1:0]        dst_hexokay,
 	output wire [N_PORTS*W_ADDR-1:0] dst_haddr,
 	output wire [N_PORTS-1:0]        dst_hwrite,
 	output reg  [N_PORTS*2-1:0]      dst_htrans,
@@ -62,6 +67,7 @@ module ahbl_splitter #(
 	output wire [N_PORTS*3-1:0]      dst_hburst,
 	output wire [N_PORTS*4-1:0]      dst_hprot,
 	output wire [N_PORTS-1:0]        dst_hmastlock,
+	output wire [N_PORTS-1:0]        dst_hexcl,
 	output wire [N_PORTS*W_DATA-1:0] dst_hwdata,
 	input  wire [N_PORTS*W_DATA-1:0] dst_hrdata
 );
@@ -102,6 +108,7 @@ assign dst_hsize     = {N_PORTS{src_hsize}};
 assign dst_hburst    = {N_PORTS{src_hburst}};
 assign dst_hprot     = {N_PORTS{src_hprot}};
 assign dst_hmastlock = {N_PORTS{src_hmastlock}};
+assign dst_hexcl     = {N_PORTS{src_hexcl}};
 
 always @ (*) begin
 	for (i = 0; i < N_PORTS; i = i + 1) begin
@@ -154,6 +161,9 @@ onehot_mux #(
 
 assign src_hready_resp = (!slave_sel_d && (err_ph1 || !decode_err_d)) ||
 	|(slave_sel_d & dst_hready_resp);
+
 assign src_hresp = decode_err_d || |(slave_sel_d & dst_hresp);
+
+assign src_hexokay = |(slave_sel_d & dst_hexokay);
 
 endmodule
