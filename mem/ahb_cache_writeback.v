@@ -18,15 +18,26 @@
 `default_nettype none
 
 module ahb_cache_writeback #(
-	parameter N_WAYS = 1,
-	parameter W_ADDR = 32,
-	parameter W_DATA = 32,
-	// Cache line width must be be power of two times W_DATA. The cache will fill
-	// one entire cache line on each miss, using a naturally-aligned burst.
-	parameter W_LINE = W_DATA,
-	parameter TMEM_PRELOAD = "",
-	parameter DMEM_PRELOAD = "",
-	parameter DEPTH =  256 // Capacity in bits = W_LINE * N_WAYS * DEPTH
+	parameter N_WAYS           = 1,
+	parameter W_ADDR           = 32,
+	parameter W_DATA           = 32,
+	// Cache line width must be be power of two times W_DATA. The cache will
+	// fill one entire cache line each miss, using a naturally-aligned burst.
+	parameter W_LINE           = W_DATA,
+	// Capacity in bits = W_LINE * N_WAYS * DEPTH
+	parameter DEPTH            = 256,
+
+	parameter TMEM_PRELOAD     = "",
+	parameter DMEM_PRELOAD     = "",
+
+	// If number of masters is 0, exclusives are not supported. Excusives are
+	// enforced on upstream accesses using a global monitor inside the cache;
+	// exclusivity is not propagated downstream. This is suitable for use as
+	// a "system cache", but exclusives over multiple top-level caches would
+	// require coherent interconnect.
+	parameter EXCL_N_MASTERS   = 0,
+	// Granule address LSB = 3 -> 8-byte granule size
+	parameter EXCL_GRANULE_LSB = 3
 ) (
 	// Globals
 	input wire                clk,
@@ -36,13 +47,16 @@ module ahb_cache_writeback #(
 	output wire               src_hready_resp,
 	input  wire               src_hready,
 	output wire               src_hresp,
+	output wire               src_hexokay,
 	input  wire [W_ADDR-1:0]  src_haddr,
 	input  wire               src_hwrite,
 	input  wire [1:0]         src_htrans,
 	input  wire [2:0]         src_hsize,
 	input  wire [2:0]         src_hburst,
 	input  wire [3:0]         src_hprot,
+	input  wire [7:0]         src_hmaster,
 	input  wire               src_hmastlock,
+	input  wire               src_hexcl,
 	input  wire [W_DATA-1:0]  src_hwdata,
 	output wire [W_DATA-1:0]  src_hrdata,
 
@@ -64,6 +78,96 @@ module ahb_cache_writeback #(
 
 localparam BURST_SIZE = W_LINE / W_DATA;
 
+wire src_aphase_read = src_hready && src_htrans[1] && !src_hwrite;
+wire src_aphase_write = src_hready && src_htrans[1] && src_hwrite;
+wire src_aphase = src_aphase_read || src_aphase_write;
+
+reg [W_ADDR-1:0]    src_addr_dphase;
+reg [2:0]           src_size_dphase;
+reg                 src_write_dphase;
+reg                 src_read_dphase;
+reg                 src_excl_dphase;
+reg [7:0]           src_id_dphase;
+
+always @ (posedge clk or negedge rst_n) begin
+	if (!rst_n) begin
+		src_addr_dphase <= {W_ADDR{1'b0}};
+		src_size_dphase <= 3'h0;
+		src_write_dphase <= 1'b0;
+		src_read_dphase <= 1'b0;
+		src_excl_dphase <= 1'b0;
+		src_id_dphase <= 8'h0;
+	end else if (src_hready && src_aphase) begin
+		src_addr_dphase <= src_haddr;
+		src_size_dphase <= src_hsize;
+		src_write_dphase <= src_hwrite && src_htrans[1];
+		src_read_dphase <= !src_hwrite && src_htrans[1];
+		src_excl_dphase <= src_hexcl && src_htrans[1];
+		src_id_dphase <= src_hmaster;
+	end
+end
+
+// ----------------------------------------------------------------------------
+// Global exclusivity monitor
+
+wire failed_exc_write_dphase;
+
+localparam W_EXCL_TAG = W_ADDR - EXCL_GRANULE_LSB;
+
+generate
+if (EXCL_N_MASTERS == 0) begin: no_global_monitor
+
+	assign failed_exc_write_dphase = 1'b0;
+	assign src_hexokay = 1'b0;
+
+end else begin: global_monitor
+
+	reg  [W_EXCL_TAG-1:0]     reservation_tag [0:EXCL_N_MASTERS-1];
+	reg  [EXCL_N_MASTERS-1:0] reservation_vld;
+
+	wire [W_EXCL_TAG-1:0]     src_tag = src_addr_dphase[EXCL_GRANULE_LSB +: W_EXCL_TAG];
+
+	assign failed_exc_write_dphase = src_excl_dphase && src_write_dphase && (
+		!reservation_vld[src_id_dphase] ||
+		reservation_tag[src_id_dphase] != src_tag
+	);
+
+	// Exclusive read always sets that master's reservation.
+	// Exclusive write always clears that master's reservation, and if the
+	// write succeeds, all other masters' matching reservations.
+	// Non-exclusive write clears all other masters' matching reservations.
+	// Non-exclusive reads don't affect reservations.
+
+	integer i;
+
+	always @ (posedge clk or negedge rst_n) begin
+		if (!rst_n) begin
+			for (i = 0; i < EXCL_N_MASTERS; i = i + 1) begin
+				reservation_tag[i] <= {W_EXCL_TAG{1'b0}};
+			end
+			reservation_vld <= {EXCL_N_MASTERS{1'b0}};
+		end else if (src_hready_resp) begin
+			for (i = 0; i < EXCL_N_MASTERS; i = i + 1) begin
+				if (i == src_id_dphase) begin
+					if (src_excl_dphase && src_read_dphase) begin
+						reservation_tag[i] <= src_tag;
+						reservation_vld[i] <= 1'b1;
+					end else if (src_excl_dphase && src_write_dphase) begin
+						reservation_vld[i] <= 1'b0;
+					end
+				end else if (src_write_dphase && src_tag == reservation_tag[i] && !failed_exc_write_dphase) begin
+					// Clear own reservation on other master's excl write
+					// successs or nonexcl write, if the addresses match.
+					reservation_vld[i] <= 1'b0;
+				end
+			end
+		end
+	end
+
+	assign src_hexokay = src_hready_resp && src_excl_dphase && !failed_exc_write_dphase;
+
+end
+endgenerate
 
 // ----------------------------------------------------------------------------
 // Cache control state machine
@@ -108,33 +212,17 @@ localparam S_ERR_PH0           = 5'd21; // Upstream error response phase 0
 localparam S_ERR_PH1           = 5'd22; // Upstream error response phase 1
 
 reg [W_STATE-1:0]   cache_state;
-reg [W_ADDR-1:0]    src_addr_dphase;
-reg [2:0]           src_size_dphase;
 
 wire                cache_hit;
 wire                cache_dirty;
 
 wire src_uncacheable = !(src_hprot[3] && src_hprot[2]);
 
-wire src_aphase_read = src_hready && src_htrans[1] && !src_hwrite;
-wire src_aphase_write = src_hready && src_htrans[1] && src_hwrite;
-wire src_aphase = src_aphase_read || src_aphase_write;
-
 wire [W_STATE-1:0] s_next_or_idle =
 	src_aphase_read  && src_uncacheable ? S_UREAD_APH   :
 	src_aphase_write && src_uncacheable ? S_UWRITE_APH  :
 	src_aphase_read                     ? S_READ_CHECK  :
 	src_aphase_write                    ? S_WRITE_CHECK : S_IDLE;
-
-always @ (posedge clk or negedge rst_n) begin
-	if (!rst_n) begin
-		src_addr_dphase <= {W_ADDR{1'b0}};
-		src_size_dphase <= 3'h0;
-	end else if (src_hready && src_aphase) begin
-		src_addr_dphase <= src_haddr;
-		src_size_dphase <= src_hsize;
-	end
-end
 
 wire last_aphase_of_burst;
 
@@ -174,7 +262,7 @@ always @ (posedge clk or negedge rst_n) begin
 		end
 		S_WRITE_CHECK: begin
 			if (cache_hit) begin
-				if (!cache_dirty) begin
+				if (!cache_dirty && !failed_exc_write_dphase) begin
 					// Tag memory needs writing, so can't accept new address phase this cycle.
 					cache_state <= S_WRITE_DONE;
 				end else if (src_aphase_read) begin
@@ -222,7 +310,10 @@ always @ (posedge clk or negedge rst_n) begin
 		end
 		S_UWRITE_APH: begin
 			// IDLE->OKAY means no stall or error
-			cache_state <= S_UWRITE_DPH;
+			if (failed_exc_write_dphase)
+				cache_state <= s_next_or_idle;
+			else
+				cache_state <= S_UWRITE_DPH;
 		end
 		S_UWRITE_DPH: begin
 			if (dst_hready) begin
@@ -385,14 +476,18 @@ end
 
 wire in_clean_aphase =
 	cache_dirty && !cache_hit && (
-		cache_state == S_WRITE_CHECK ||
+		cache_state == S_WRITE_CHECK && !failed_exc_write_dphase ||
 		cache_state == S_READ_CHECK) ||
 	cache_state == S_WRITE_CLEAN_BURST ||
 	cache_state == S_READ_CLEAN_BURST;
 
-wire maybe_modify_cache = cache_state == S_WRITE_CHECK || cache_state == S_WRITE_MODIFY;
+wire maybe_modify_cache =
+	(cache_state == S_WRITE_CHECK && !failed_exc_write_dphase) ||
+	cache_state == S_WRITE_MODIFY;
 
-wire cache_wen_modify = (cache_state == S_WRITE_CHECK && cache_hit) || cache_state == S_WRITE_MODIFY;
+wire cache_wen_modify =
+	(cache_state == S_WRITE_CHECK && cache_hit && !failed_exc_write_dphase) ||
+	cache_state == S_WRITE_MODIFY;
 
 wire cache_wen_fill = dst_hready && (
 	cache_state == S_WRITE_FILL_BURST || cache_state == S_WRITE_FILL_LAST ||
@@ -465,9 +560,9 @@ assign dst_htrans =
 	dst_err_ph1 ? HTRANS_IDLE :	(
 		cache_state == S_READ_CHECK && !cache_hit ||
 		cache_state == S_READ_CLEAN_LAST ||
-		cache_state == S_WRITE_CHECK && !cache_hit ||
+		cache_state == S_WRITE_CHECK && !cache_hit && !failed_exc_write_dphase ||
 		cache_state == S_WRITE_CLEAN_LAST ||
-		cache_state == S_UWRITE_APH ||
+		cache_state == S_UWRITE_APH && !failed_exc_write_dphase ||
 		cache_state == S_UREAD_APH
 	) ? HTRANS_NSEQ : (
 		cache_state == S_READ_CLEAN_BURST ||
@@ -529,9 +624,10 @@ assign src_hready_resp =
 	cache_state == S_IDLE ||
 	cache_state == S_READ_CHECK && cache_hit ||
 	cache_state == S_READ_DONE ||
-	cache_state == S_WRITE_CHECK && cache_hit && cache_dirty ||
+	cache_state == S_WRITE_CHECK && ((cache_hit && cache_dirty) || failed_exc_write_dphase) ||
 	cache_state == S_WRITE_DONE ||
 	cache_state == S_UREAD_DONE ||
+	cache_state == S_UWRITE_APH && failed_exc_write_dphase ||
 	cache_state == S_UWRITE_DONE ||
 	cache_state == S_ERR_PH1;
 
