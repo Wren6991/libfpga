@@ -55,6 +55,7 @@ module ahbl_crossbar #(
 	input  wire [N_MASTERS*3-1:0]      src_hsize,
 	input  wire [N_MASTERS*3-1:0]      src_hburst,
 	input  wire [N_MASTERS*4-1:0]      src_hprot,
+	input  wire [N_MASTERS*8-1:0]      src_hmaster,
 	input  wire [N_MASTERS-1:0]        src_hmastlock,
 	input  wire [N_MASTERS-1:0]        src_hexcl,
 	input  wire [N_MASTERS*W_DATA-1:0] src_hwdata,
@@ -71,6 +72,7 @@ module ahbl_crossbar #(
 	output wire [N_SLAVES*3-1:0]       dst_hsize,
 	output wire [N_SLAVES*3-1:0]       dst_hburst,
 	output wire [N_SLAVES*4-1:0]       dst_hprot,
+	output wire [N_SLAVES*8-1:0]       dst_hmaster,
 	output wire [N_SLAVES-1:0]         dst_hmastlock,
 	output wire [N_SLAVES-1:0]         dst_hexcl,
 	output wire [N_SLAVES*W_DATA-1:0]  dst_hwdata,
@@ -92,6 +94,7 @@ wire [1:0]        xbar_htrans      [0:N_MASTERS-1][0:N_SLAVES-1];
 wire [2:0]        xbar_hsize       [0:N_MASTERS-1][0:N_SLAVES-1];
 wire [2:0]        xbar_hburst      [0:N_MASTERS-1][0:N_SLAVES-1];
 wire [3:0]        xbar_hprot       [0:N_MASTERS-1][0:N_SLAVES-1];
+wire [7:0]        xbar_hmaster     [0:N_MASTERS-1][0:N_SLAVES-1];
 wire              xbar_hmastlock   [0:N_MASTERS-1][0:N_SLAVES-1];
 wire              xbar_hexcl       [0:N_MASTERS-1][0:N_SLAVES-1];
 wire [W_DATA-1:0] xbar_hwdata      [0:N_MASTERS-1][0:N_SLAVES-1];
@@ -117,6 +120,7 @@ for (i = 0; i < N_MASTERS; i = i + 1) begin: split_instantiate
 	wire [N_SLAVES*3-1:0]       split_hsize;
 	wire [N_SLAVES*3-1:0]       split_hburst;
 	wire [N_SLAVES*4-1:0]       split_hprot;
+	wire [N_SLAVES*8-1:0]       split_hmaster;
 	wire [N_SLAVES-1:0]         split_hmastlock;
 	wire [N_SLAVES-1:0]         split_hexcl;
 	wire [N_SLAVES*W_DATA-1:0]  split_hwdata;
@@ -131,6 +135,7 @@ for (i = 0; i < N_MASTERS; i = i + 1) begin: split_instantiate
 			assign xbar_hsize[i][j]                   = split_hsize[3 * j +: 3];
 			assign xbar_hburst[i][j]                  = split_hburst[3 * j +: 3];
 			assign xbar_hprot[i][j]                   = split_hprot[4 * j +: 4];
+			assign xbar_hmaster[i][j]                 = split_hmaster[8 * j +: 8];
 			assign xbar_hmastlock[i][j]               = split_hmastlock[j];
 			assign xbar_hexcl[i][j]                   = split_hexcl[j];
 			assign xbar_hwdata[i][j]                  = split_hwdata[W_DATA * j +: W_DATA];
@@ -148,6 +153,7 @@ for (i = 0; i < N_MASTERS; i = i + 1) begin: split_instantiate
 			assign xbar_hsize[i][j]                   = 3'h0;
 			assign xbar_hburst[i][j]                  = 3'h0;
 			assign xbar_hprot[i][j]                   = 4'h0;
+			assign xbar_hmaster[i][j]                 = 8'h0;
 			assign xbar_hmastlock[i][j]               = 1'b0;
 			assign xbar_hexcl[i][j]                   = 1'b0;
 			assign xbar_hwdata[i][j]                  = {W_DATA{1'b0}};
@@ -179,6 +185,7 @@ for (i = 0; i < N_MASTERS; i = i + 1) begin: split_instantiate
 		.src_hsize       (src_hsize[3 * i +: 3]),
 		.src_hburst      (src_hburst[3 * i +: 3]),
 		.src_hprot       (src_hprot[4 * i +: 4]),
+		.src_hmaster     (src_hmaster[8 * i +: 8]),
 		.src_hmastlock   (src_hmastlock[i]),
 		.src_hexcl       (src_hexcl[i]),
 		.src_hwdata      (src_hwdata[W_DATA * i +: W_DATA]),
@@ -193,6 +200,7 @@ for (i = 0; i < N_MASTERS; i = i + 1) begin: split_instantiate
 		.dst_hsize       (split_hsize),
 		.dst_hburst      (split_hburst),
 		.dst_hprot       (split_hprot),
+		.dst_hmaster     (split_hmaster),
 		.dst_hmastlock   (split_hmastlock),
 		.dst_hexcl       (split_hexcl),
 		.dst_hwdata      (split_hwdata),
@@ -217,6 +225,7 @@ for (j = 0; j < N_SLAVES; j = j + 1) begin: arb_instantiate
 	wire [N_MASTERS*3-1:0]       arb_hsize;
 	wire [N_MASTERS*3-1:0]       arb_hburst;
 	wire [N_MASTERS*4-1:0]       arb_hprot;
+	wire [N_MASTERS*8-1:0]       arb_hmaster;
 	wire [N_MASTERS-1:0]         arb_hmastlock;
 	wire [N_MASTERS-1:0]         arb_hexcl;
 	wire [N_MASTERS*W_DATA-1:0]  arb_hwdata;
@@ -230,6 +239,7 @@ for (j = 0; j < N_SLAVES; j = j + 1) begin: arb_instantiate
 		assign arb_hsize[3 * i +: 3]            = xbar_hsize[i][j];
 		assign arb_hburst[3 * i +: 3]           = xbar_hburst[i][j];
 		assign arb_hprot[4 * i +: 4]            = xbar_hprot[i][j];
+		assign arb_hmaster[8 * i +: 8]          = xbar_hmaster[i][j];
 		assign arb_hmastlock[i]                 = xbar_hmastlock[i][j];
 		assign arb_hexcl[i]                     = xbar_hexcl[i][j];
 		assign arb_hwdata[W_DATA * i +: W_DATA] = xbar_hwdata[i][j];
@@ -257,6 +267,7 @@ for (j = 0; j < N_SLAVES; j = j + 1) begin: arb_instantiate
 		.src_hsize       (arb_hsize),
 		.src_hburst      (arb_hburst),
 		.src_hprot       (arb_hprot),
+		.src_hmaster     (arb_hmaster),
 		.src_hmastlock   (arb_hmastlock),
 		.src_hexcl       (arb_hexcl),
 		.src_hwdata      (arb_hwdata),
@@ -271,6 +282,7 @@ for (j = 0; j < N_SLAVES; j = j + 1) begin: arb_instantiate
 		.dst_hsize       (dst_hsize[3 * j +: 3]),
 		.dst_hburst      (dst_hburst[3 * j +: 3]),
 		.dst_hprot       (dst_hprot[4 * j +: 4]),
+		.dst_hmaster     (dst_hmaster[8 * j +: 8]),
 		.dst_hmastlock   (dst_hmastlock[j]),
 		.dst_hexcl       (dst_hexcl[j]),
 		.dst_hwdata      (dst_hwdata[W_DATA * j +: W_DATA]),

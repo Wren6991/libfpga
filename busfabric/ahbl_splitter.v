@@ -50,6 +50,7 @@ module ahbl_splitter #(
 	input  wire [2:0]                src_hsize,
 	input  wire [2:0]                src_hburst,
 	input  wire [3:0]                src_hprot,
+	input  wire [7:0]                src_hmaster,
 	input  wire                      src_hmastlock,
 	input  wire                      src_hexcl,
 	input  wire [W_DATA-1:0]         src_hwdata,
@@ -66,6 +67,7 @@ module ahbl_splitter #(
 	output wire [N_PORTS*3-1:0]      dst_hsize,
 	output wire [N_PORTS*3-1:0]      dst_hburst,
 	output wire [N_PORTS*4-1:0]      dst_hprot,
+	output wire [N_PORTS*8-1:0]      dst_hmaster,
 	output wire [N_PORTS-1:0]        dst_hmastlock,
 	output wire [N_PORTS-1:0]        dst_hexcl,
 	output wire [N_PORTS*W_DATA-1:0] dst_hwdata,
@@ -107,6 +109,7 @@ assign dst_hwrite    = {N_PORTS{src_hwrite}};
 assign dst_hsize     = {N_PORTS{src_hsize}};
 assign dst_hburst    = {N_PORTS{src_hburst}};
 assign dst_hprot     = {N_PORTS{src_hprot}};
+assign dst_hmaster   = {N_PORTS{src_hmaster}};
 assign dst_hmastlock = {N_PORTS{src_hmastlock}};
 assign dst_hexcl     = {N_PORTS{src_hexcl}};
 

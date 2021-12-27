@@ -52,6 +52,7 @@ module ahbl_arbiter #(
 	input  wire [N_PORTS*3-1:0]      src_hsize,
 	input  wire [N_PORTS*3-1:0]      src_hburst,
 	input  wire [N_PORTS*4-1:0]      src_hprot,
+	input  wire [N_PORTS*8-1:0]      src_hmaster,
 	input  wire [N_PORTS-1:0]        src_hmastlock,
 	input  wire [N_PORTS-1:0]        src_hexcl,
 	input  wire [N_PORTS*W_DATA-1:0] src_hwdata,
@@ -68,6 +69,7 @@ module ahbl_arbiter #(
 	output wire [2:0]                dst_hsize,
 	output wire [2:0]                dst_hburst,
 	output wire [3:0]                dst_hprot,
+	output wire [7:0]                dst_hmaster,
 	output wire                      dst_hmastlock,
 	output wire                      dst_hexcl,
 	output wire [W_DATA-1:0]         dst_hwdata,
@@ -85,6 +87,7 @@ reg [1:0]                buf_htrans     [0:N_PORTS-1];
 reg [2:0]                buf_hsize      [0:N_PORTS-1];
 reg [2:0]                buf_hburst     [0:N_PORTS-1];
 reg [3:0]                buf_hprot      [0:N_PORTS-1];
+reg [7:0]                buf_hmaster    [0:N_PORTS-1];
 reg                      buf_hmastlock  [0:N_PORTS-1];
 reg                      buf_hexcl      [0:N_PORTS-1];
 
@@ -94,6 +97,7 @@ reg [N_PORTS*2-1:0]      actual_htrans;
 reg [N_PORTS*3-1:0]      actual_hsize;
 reg [N_PORTS*3-1:0]      actual_hburst;
 reg [N_PORTS*4-1:0]      actual_hprot;
+reg [N_PORTS*8-1:0]      actual_hmaster;
 reg [N_PORTS-1:0]        actual_hmastlock;
 reg [N_PORTS-1:0]        actual_hexcl;
 
@@ -107,6 +111,7 @@ always @ (*) begin
 			actual_hsize     [i * 3 +: 3]           = buf_hsize     [i];
 			actual_hburst    [i * 3 +: 3]           = buf_hburst    [i];
 			actual_hprot     [i * 4 +: 4]           = buf_hprot     [i];
+			actual_hmaster   [i * 8 +: 8]           = buf_hmaster   [i];
 			actual_hmastlock [i]                    = buf_hmastlock [i];
 			actual_hexcl     [i]                    = buf_hexcl     [i];
 		end else begin
@@ -116,6 +121,7 @@ always @ (*) begin
 			actual_hsize     [i * 3 +: 3]           = src_hsize     [i * 3 +: 3];
 			actual_hburst    [i * 3 +: 3]           = src_hburst    [i * 3 +: 3];
 			actual_hprot     [i * 4 +: 4]           = src_hprot     [i * 4 +: 4];
+			actual_hmaster   [i * 8 +: 8]           = src_hmaster   [i * 8 +: 8];
 			actual_hmastlock [i]                    = src_hmastlock [i];
 			actual_hexcl     [i]                    = src_hexcl     [i];
 		end
@@ -191,7 +197,8 @@ always @ (posedge clk or negedge rst_n) begin
 			buf_hwrite[i]    <= 1'b0;
 			buf_hsize[i]     <= 3'h0;
 			buf_hburst[i]    <= 3'h0;
-			buf_hprot[i]     <= 3'h0;
+			buf_hprot[i]     <= 4'h0;
+			buf_hmaster[i]   <= 8'h0;
 			buf_hmastlock[i] <= 1'b0;
 			buf_hexcl[i]     <= 1'b0;
 		end
@@ -209,6 +216,7 @@ always @ (posedge clk or negedge rst_n) begin
 				buf_hsize    [i] <= src_hsize    [i * 3 +: 3];
 				buf_hburst   [i] <= src_hburst   [i * 3 +: 3];
 				buf_hprot    [i] <= src_hprot    [i * 4 +: 4];
+				buf_hmaster  [i] <= src_hmaster  [i * 8 +: 8];
 				buf_hmastlock[i] <= src_hmastlock[i];
 				buf_hexcl    [i] <= src_hexcl    [i];
 			end
@@ -293,6 +301,15 @@ onehot_mux #(
 	.in(actual_hprot),
 	.sel(mast_gnt_a),
 	.out(dst_hprot)
+);
+
+onehot_mux #(
+	.W_INPUT(8),
+	.N_INPUTS(N_PORTS)
+) mux_hmaster (
+	.in(actual_hmaster),
+	.sel(mast_gnt_a),
+	.out(dst_hmaster)
 );
 
 onehot_mux #(
