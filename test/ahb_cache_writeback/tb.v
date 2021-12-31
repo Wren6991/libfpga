@@ -26,6 +26,10 @@ localparam CACHE_DEPTH = 4;
 // Downstream SRAM, a few times bigger than the cache, nothing too extravagant.
 localparam MEM_SIZE_BYTES = 4 * (W_LINE * CACHE_DEPTH / 8);
 
+// Enable exclusivity monitoring
+localparam EXCL_N_MASTERS = 2;
+localparam EXCL_GRANULE_LSB = 3;
+
 // ----------------------------------------------------------------------------
 // DUT and RAM model
 
@@ -34,13 +38,16 @@ wire               rst_n;
 
 reg                src_hready;
 wire               src_hresp;
+wire               src_hexokay;
 reg  [W_ADDR-1:0]  src_haddr;
 reg                src_hwrite;
 reg  [1:0]         src_htrans;
 reg  [2:0]         src_hsize;
 reg  [2:0]         src_hburst;
 reg  [3:0]         src_hprot;
+reg  [7:0]         src_hmaster;
 reg                src_hmastlock;
+reg                src_hexcl;
 reg  [W_DATA-1:0]  src_hwdata;
 wire [W_DATA-1:0]  src_hrdata;
 
@@ -58,11 +65,13 @@ wire [W_DATA-1:0]  dst_hwdata;
 reg  [W_DATA-1:0]  dst_hrdata;
 
 ahb_cache_writeback #(
-	.W_ADDR(W_ADDR),
-	.W_DATA(W_DATA),
-	.W_LINE(W_LINE),
-	.TMEM_PRELOAD("tag_zeroes.hex"),
-	.DEPTH(CACHE_DEPTH)
+	.W_ADDR           (W_ADDR),
+	.W_DATA           (W_DATA),
+	.W_LINE           (W_LINE),
+	.TMEM_PRELOAD     ("tag_zeroes.hex"),
+	.DEPTH            (CACHE_DEPTH),
+	.EXCL_N_MASTERS   (EXCL_N_MASTERS),
+	.EXCL_GRANULE_LSB (EXCL_GRANULE_LSB)
 ) dut (
 	.clk             (clk),
 	.rst_n           (rst_n),
@@ -70,13 +79,16 @@ ahb_cache_writeback #(
 	.src_hready_resp (src_hready),
 	.src_hready      (src_hready),
 	.src_hresp       (src_hresp),
+	.src_hexokay     (src_hexokay),
 	.src_haddr       (src_haddr),
 	.src_hwrite      (src_hwrite),
 	.src_htrans      (src_htrans),
 	.src_hsize       (src_hsize),
 	.src_hburst      (src_hburst),
 	.src_hprot       (src_hprot),
+	.src_hmaster     (src_hmaster),
 	.src_hmastlock   (src_hmastlock),
+	.src_hexcl       (src_hexcl),
 	.src_hwdata      (src_hwdata),
 	.src_hrdata      (src_hrdata),
 
@@ -143,6 +155,7 @@ reg              src_write_dph;
 reg [W_ADDR-1:0] src_addr_dph;
 reg [2:0]        src_size_dph;
 reg [3:0]        src_prot_dph;
+reg              src_excl_dph;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
@@ -151,12 +164,14 @@ always @ (posedge clk or negedge rst_n) begin
 		src_addr_dph <= {W_ADDR{1'b0}};
 		src_size_dph <= 3'h0;
 		src_prot_dph <= 4'h0;
+		src_excl_dph <= 1'b0;
 	end else if (src_hready) begin
 		src_active_dph <= src_htrans[1];
 		src_write_dph <= src_hwrite;
 		src_addr_dph <= src_haddr;
 		src_size_dph <= src_hsize;
 		src_prot_dph <= src_hprot;
+		src_excl_dph <= src_hexcl;
 	end
 end
 
@@ -204,6 +219,8 @@ always @ (posedge clk) begin: src_ahbl_req_properties
 	// Write data stable during write data phase
 	if (src_active_dph && src_write_dph && !$past(src_hready))
 		assume($stable(src_hwdata));
+	// No unmonitored masters
+	assume(src_hmaster < EXCL_N_MASTERS);
 end
 
 // Assertions for all upstream responses
@@ -305,6 +322,7 @@ always @ (posedge clk) if (rst_n) begin
 		// takes place, which overlaps some particular byte in memory.
 		assume(src_hready);
 		assume(!src_hresp);
+		assume(src_hexokay == src_excl_dph);
 		assume(src_active_dph);
 		assume(src_write_dph);
 		assume(src_addr_dph <= check_addr);

@@ -261,8 +261,11 @@ always @ (posedge clk or negedge rst_n) begin
 			cache_state <= s_next_or_idle;
 		end
 		S_WRITE_CHECK: begin
-			if (cache_hit) begin
-				if (!cache_dirty && !failed_exc_write_dphase) begin
+			if (failed_exc_write_dphase) begin
+				// Exclusive-write-fail is a 0-wait-state response. Accept new transfer.
+				cache_state <= s_next_or_idle;
+			end else if (cache_hit) begin
+				if (!cache_dirty) begin
 					// Tag memory needs writing, so can't accept new address phase this cycle.
 					cache_state <= S_WRITE_DONE;
 				end else if (src_aphase_read) begin
@@ -519,9 +522,13 @@ assign cache_wdata  = maybe_modify_cache ? src_hwdata : dst_hrdata;
 // Note we can't send read aphase to dmem during a write dataphase, because
 // the port is already occupied. The WRITE2READ_STALL state gives us a second
 // crack at this address, during a read data phase stall cycle.
+//
+// However, in the dataphase of a failed exclusive write, we *do* allow the
+// read to go through, since such a write is effectively a no-op and does not
+// need to access the data memory.
 
 assign cache_d_ren =
-	(src_aphase_read && cache_state != S_WRITE_CHECK) ||
+	(src_aphase_read && (cache_state != S_WRITE_CHECK || failed_exc_write_dphase)) ||
 	cache_state == S_WRITE2READ_STALL ||
 	(in_clean_aphase && dst_hready);
 
