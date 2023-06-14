@@ -6,6 +6,8 @@
 
 // Size of memory is DEPTH * W_SRAM_DATA
 
+`default_nettype none
+
 module ahb_async_sram_halfwidth #(
 	parameter W_DATA = 32,
 	parameter W_ADDR = 32,
@@ -32,7 +34,9 @@ module ahb_async_sram_halfwidth #(
 	output wire [W_DATA-1:0]        ahbls_hrdata,
 
 	output wire [W_SRAM_ADDR-1:0]   sram_addr,
-	inout  wire [W_SRAM_DATA-1:0]   sram_dq,
+	output wire [W_SRAM_DATA-1:0]   sram_dq_out,
+	output wire [W_SRAM_DATA-1:0]   sram_dq_oe,
+	input  wire [W_SRAM_DATA-1:0]   sram_dq_in,
 	output wire                     sram_ce_n,
 	output wire                     sram_we_n, // DDR output
 	output wire                     sram_oe_n,
@@ -52,14 +56,10 @@ reg addr_lsb;
 // AHBL decode and muxing
 
 wire [W_SRAM_DATA/8-1:0] bytemask_noshift = ~({W_SRAM_DATA/8{1'b1}} << (8'h1 << ahbls_hsize));
-wire [W_SRAM_DATA/8-1:0] bytemask = bytemask_noshift << ahbls_haddr[W_BYTEADDR-1:0];
+wire [W_SRAM_DATA/8-1:0] bytemask_aph = bytemask_noshift << ahbls_haddr[W_BYTEADDR-1:0];
 wire aphase_full_width = (8'h1 << ahbls_hsize) == W_DATA / 8; // indicates next dphase will be long
 
-wire we_next = ahbls_htrans[1] && ahbls_hwrite && ahbls_hready
-	|| long_dphase && write_dph && !hready_r;
-
-wire [W_SRAM_DATA-1:0] sram_q;
-wire [W_SRAM_DATA-1:0] sram_rdata = sram_q & {W_SRAM_DATA{read_dph}};
+wire [W_SRAM_DATA-1:0] sram_rdata;
 wire [W_SRAM_DATA-1:0] sram_wdata = ahbls_hwdata[(addr_lsb ? W_SRAM_DATA : 0) +: W_SRAM_DATA];
 reg  [W_SRAM_DATA-1:0] rdata_buf;
 assign ahbls_hrdata = {sram_rdata, long_dphase ? rdata_buf : sram_rdata};
@@ -95,56 +95,33 @@ always @ (posedge clk or negedge rst_n) begin
 	end
 end
 
-// External SRAM hookup (tristating etc)
+// SRAM PHY hookup
 
-ddr_out we_ddr (
-	.clk    (clk),
-	.rst_n  (rst_n),
-	.d_rise (1'b1),
-	.d_fall (!we_next),
-	.q      (sram_we_n)
-);
+wire ce_aph = ahbls_htrans[1] && ahbls_hready;
+wire ce_dph = long_dphase && !hready_r;
 
-dffe_out addr_dffe [W_SRAM_ADDR-2:0] (
-	.clk (clk),
-	.d   (ahbls_haddr[W_BYTEADDR + 1 +: W_SRAM_ADDR - 1]),
-	.e   (ahbls_htrans[1] && ahbls_hready),
-	.q   (sram_addr[W_SRAM_ADDR-1:1])
-);
+reg [W_SRAM_ADDR-1:0] addr_dph;
+always @ (posedge clk or negedge rst_n) begin
+	if (!rst_n) begin
+		addr_dph <= {W_SRAM_ADDR{1'b0}};
+	end else if (ahbls_hready) begin
+		addr_dph <= ahbls_haddr[W_BYTEADDR +: W_SRAM_ADDR] | {{W_SRAM_ADDR-1{1'b0}}, 1'b1};
+	end
+end
 
-dffe_out addr0_dffe (
-	.clk (clk),
-	.d   (ahbls_haddr[W_BYTEADDR] || (long_dphase && !ahbls_hready)),
-	.e   (1'b1),           // HACK 1'b1 is overgenerous, but tying high means we can colocate with
-	.q   (sram_addr[0])    // WEn. Any other address pin would put clock enable on WEn which is fatal.
-);
+assign sram_ce_n   = !( ce_aph                   ||  ce_dph               );
+assign sram_we_n   = !((ce_aph &&  ahbls_hwrite) || (ce_dph &&  write_dph));
+assign sram_oe_n   = !((ce_aph && !ahbls_hwrite) || (ce_dph && !write_dph));
 
-dffe_out ce_dffe (
-	.clk (clk),
-	.d   (!ahbls_htrans[1]),
-	.e   (ahbls_hready),
-	.q   (sram_ce_n)
-);
+assign sram_addr   = ce_dph ? addr_dph : ahbls_haddr[W_BYTEADDR +: W_SRAM_ADDR];
+assign sram_byte_n = ~(bytemask_aph | {W_SRAM_DATA/8{ce_dph}});
 
-dffe_out oe_dffe (
-	.clk (clk),
-	.d   (ahbls_hwrite || !ahbls_htrans[1]),
-	.e   (ahbls_htrans[1] && ahbls_hready), // HACK see ben_dffe
-	.q   (sram_oe_n)
-);
-
-dffe_out ben_dffe [1:0] (
-	.clk (clk),
-	.d   (~bytemask),
-	.e   (ahbls_htrans[1] && ahbls_hready), // HACK: ideally would be hready, but due to stupid iCE40 design,
-	.q   (sram_byte_n)                      // needs to match the colocated IO, since there is one CE per two IOBs.
-	);                                      // On HX8k-EVN ben[1] shares with addr[11] and ben[0] is on its own.
-
-tristate_io iobuf [W_SRAM_DATA-1:0] (
-	.out (sram_wdata),
-	.oe  (write_dph),
-	.in  (sram_q),
-	.pad (sram_dq)
-);
+assign sram_rdata  = sram_dq_in;
+assign sram_dq_out = sram_wdata;
+assign sram_dq_oe  = {W_SRAM_DATA{write_dph}};
 
 endmodule
+
+`ifndef YOSYS
+`default_nettype wire
+`endif

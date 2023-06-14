@@ -47,6 +47,7 @@ SB_IO #(
 ) buffer (
 	.PACKAGE_PIN  (q),
 	.OUTPUT_CLK   (clk),
+	.INPUT_CLK    (clk),
 	.D_OUT_0      (d_rise),
 	.D_OUT_1      (d_fall_r)
 );
