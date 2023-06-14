@@ -91,10 +91,12 @@ tristate_io #(
 	.SYNC_OUT (0),
 	.SYNC_IN  (0)
 ) iobuf [W_DATA-1:0] (
-	.out (ctrl_dq_out),
-	.oe  (ctrl_dq_oe),
-	.in  (ctrl_dq_in),
-	.pad (sram_dq)
+	.clk   (clk),
+	.rst_n (rst_n),
+	.out   (ctrl_dq_out),
+	.oe    (ctrl_dq_oe),
+	.in    (ctrl_dq_in),
+	.pad   (sram_dq)
 );
 
 endmodule
