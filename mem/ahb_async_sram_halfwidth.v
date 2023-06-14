@@ -102,7 +102,6 @@ ddr_out we_ddr (
 	.rst_n  (rst_n),
 	.d_rise (1'b1),
 	.d_fall (!we_next),
-	.e      (1'b1),
 	.q      (sram_we_n)
 );
 

@@ -25,7 +25,6 @@ module ddr_out (
 
 	input wire d_rise,
 	input wire d_fall,
-	input wire e,
 	output reg q
 );
 
@@ -48,26 +47,15 @@ SB_IO #(
 ) buffer (
 	.PACKAGE_PIN  (q),
 	.OUTPUT_CLK   (clk),
-	.CLOCK_ENABLE (e),
 	.D_OUT_0      (d_rise),
 	.D_OUT_1      (d_fall_r)
 );
 
 `elsif FPGA_ECP5
 
-// Remember previous value so we can emulate a clock-enable. This logic should
-// be trimmed if e is tied high.
-reg [1:0] prev;
-always @ (posedge clk or negedge rst_n)
-	if (!rst_n)
-		prev <= 2'b00;
-	else if (e)
-		prev <= {d_fall, d_rise};
-
-
 ODDRX1F oddr (
-	.D0   (e ? d_rise : prev[0]),
-	.D1   (e ? d_fall : prev[1]),
+	.D0   (d_rise),
+	.D1   (d_fall),
 	.SCLK (clk),
 	.RST  (0),
 	.Q    (q)
@@ -75,13 +63,13 @@ ODDRX1F oddr (
 
 `else
 
-// Blocking to intermediates, nonblocking to outputs
-// to avoid simulation issues
+// Blocking to intermediates, nonblocking to output, to avoid multiple NBA
+// deltas at the output
 reg q0, q1;
 always @ (posedge clk or negedge rst_n)
 	if (!rst_n)
 		{q0, q1} = 2'd0;
-	else if (e === 1'b1 || e === 1'bz) // Cell enabled if disconnected (iCE40)
+	else
 		{q0, q1} = {d_rise, d_fall};
 
 always @ (*)
