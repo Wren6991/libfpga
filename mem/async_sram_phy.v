@@ -86,7 +86,46 @@ tristate_io #(
 // hardware. Should really be part of the cmd_buf above:
 assign sram_ce_n = 1'b0;
 
+`ifdef FPGA_ICE40
+
 // TODO would like this to all be synchronous:
+localparam DQ_SYNC_IN = 0;
+
+localparam [5:0] DQ_PIN_TYPE = {
+	// Posedge-registered output enable:
+    2'b11,
+    // DDR (OPPOSITE_EDGE in Xilinx terms) output to allow negedge
+    // registration of AHB HWDATA:
+    2'b00,
+    // Optional input register
+    DQ_SYNC_IN  ? 2'b00 : 2'b01
+};
+
+genvar g;
+generate
+for (g = 0; g < W_DATA; g = g + 1) begin: dq_buf_g
+	// Note we can't use array instantiation for iCE40 cells, possibly because
+	// Yosys doesn't know their type signature in advance
+	SB_IO #(
+	    .PIN_TYPE (DQ_PIN_TYPE),
+	    .PULLUP   (1'b0)
+	) dq_buf  (
+	    .OUTPUT_CLK    (clk),
+	    .INPUT_CLK     (clk),
+	    .PACKAGE_PIN   (sram_dq[g]),
+	    .OUTPUT_ENABLE (ctrl_dq_oe[g]),
+	    // HWDATA presented on negedge, following half-cycle internal path:
+	    .D_OUT_1       (ctrl_dq_out[g]),
+	    // .. then repeated on the following posedge, to keep it stable as the
+	    //    output driver turns off:
+	    .D_OUT_0       (ctrl_dq_out[g]),
+	    .D_IN_0        (ctrl_dq_in[g])
+	);
+end
+endgenerate
+
+`else
+
 tristate_io #(
 	.SYNC_OUT (0),
 	.SYNC_IN  (0)
@@ -98,6 +137,8 @@ tristate_io #(
 	.in    (ctrl_dq_in),
 	.pad   (sram_dq)
 );
+
+`endif
 
 endmodule
 

@@ -118,8 +118,13 @@ assign sram_byte_n = ~(bytemask_aph | {W_SRAM_DATA/8{ce_dph}});
 
 assign sram_rdata  = sram_dq_in;
 assign sram_dq_out = sram_wdata;
+`ifdef FPGA_ICE40
+// Output registers are built into pad (relies on the negedge trick for DQ wdata)
+assign sram_dq_oe  = {W_SRAM_DATA{!sram_we_n}};
+`else
+// No output registers on DQ
 assign sram_dq_oe  = {W_SRAM_DATA{write_dph}};
-
+`endif
 endmodule
 
 `ifndef YOSYS
