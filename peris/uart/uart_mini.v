@@ -271,10 +271,11 @@ sync_fifo #(
 ) txfifo (
 	.clk    (clk),
 	.rst_n  (rst_n_sync),
-	.w_data (txfifo_wdata),
-	.w_en   (txfifo_wen),
-	.r_data (txfifo_rdata),
-	.r_en   (txfifo_ren),
+	.wdata  (txfifo_wdata),
+	.wen    (txfifo_wen),
+	.rdata  (txfifo_rdata),
+	.ren    (txfifo_ren),
+	.flush  (1'b0),
 	.full   (txfifo_full),
 	.empty  (txfifo_empty),
 	.level  (txfifo_level)
@@ -286,10 +287,11 @@ sync_fifo #(
 ) rxfifo (
 	.clk    (clk),
 	.rst_n  (rst_n_sync),
-	.w_data (rx_shifter),
-	.w_en   (rxfifo_wen),
-	.r_data (rxfifo_rdata),
-	.r_en   (rxfifo_ren),
+	.wdata  (rx_shifter),
+	.wen    (rxfifo_wen),
+	.rdata  (rxfifo_rdata),
+	.ren    (rxfifo_ren),
+	.flush  (1'b0),
 	.full   (rxfifo_full),
 	.empty  (rxfifo_empty),
 	.level  (rxfifo_level)

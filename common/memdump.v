@@ -60,10 +60,11 @@ sync_fifo #(
 ) inst_sync_fifo (
 	.clk    (clk),
 	.rst_n  (rst_n),
-	.w_data (ahblm_hrdata),
-	.w_en   (fifo_wen),
-	.r_data (fifo_rdata),
-	.r_en   (fifo_ren),
+	.wdata  (ahblm_hrdata),
+	.wen    (fifo_wen),
+	.rdata  (fifo_rdata),
+	.ren    (fifo_ren),
+	.flush  (1'b0),
 	.full   (fifo_full),
 	.empty  (fifo_empty),
 	.level  ()

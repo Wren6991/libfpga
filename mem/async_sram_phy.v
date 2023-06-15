@@ -23,8 +23,10 @@
 `default_nettype none
 
 module async_sram_phy #(
-	parameter W_ADDR = 18,
-	parameter W_DATA = 16
+	parameter W_ADDR     = 18,
+	parameter W_DATA     = 16,
+	// If 1, register input paths, increasing read latency from 1 to 2 cycles:
+	parameter DQ_SYNC_IN = 0
 ) (
 	// These should be the same clock/reset used by the controller
 	input wire                 clk,
@@ -88,9 +90,6 @@ assign sram_ce_n = 1'b0;
 
 `ifdef FPGA_ICE40
 
-// TODO would like this to all be synchronous:
-localparam DQ_SYNC_IN = 0;
-
 localparam [5:0] DQ_PIN_TYPE = {
 	// Posedge-registered output enable:
     2'b11,
@@ -128,7 +127,7 @@ endgenerate
 
 tristate_io #(
 	.SYNC_OUT (0),
-	.SYNC_IN  (0)
+	.SYNC_IN  (DQ_SYNC_IN)
 ) iobuf [W_DATA-1:0] (
 	.clk   (clk),
 	.rst_n (rst_n),

@@ -18,6 +18,8 @@
 // Synchronous FIFO
 // DEPTH can be any integer >= 1.
 
+`default_nettype none
+
 module sync_fifo #(
 	parameter DEPTH = 2,
 	parameter WIDTH = 32,
@@ -26,10 +28,12 @@ module sync_fifo #(
 	input  wire clk,
 	input  wire rst_n,
 
-	input  wire [WIDTH-1:0]   w_data,
-	input  wire               w_en,
-	output wire [WIDTH-1:0]   r_data,
-	input  wire               r_en,
+	input  wire [WIDTH-1:0]   wdata,
+	input  wire               wen,
+	output wire [WIDTH-1:0]   rdata,
+	input  wire               ren,
+
+	input  wire               flush,
 
 	output wire               full,
 	output wire               empty,
@@ -37,7 +41,7 @@ module sync_fifo #(
 );
 
 // valid has an extra bit which should remain constant 0, and mem has an extra
-// entry which is wired through to w_data. This is just to handle the loop
+// entry which is wired through to wdata. This is just to handle the loop
 // boundary condition without tools complaining.
 reg [WIDTH-1:0] mem [0:DEPTH];
 reg [DEPTH:0]   valid;
@@ -45,13 +49,15 @@ reg [DEPTH:0]   valid;
 // ----------------------------------------------------------------------------
 // Control and datapath
 
-wire push = w_en && !full;
-wire pop = r_en && !empty;
+wire push = wen && (ren || !full);
+wire pop = ren && !empty;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		valid <= {DEPTH+1{1'b0}};
-	end else if (w_en || r_en) begin
+	end else if (flush) begin
+		valid <= {DEPTH+1{1'b0}};
+	end else if (wen || ren) begin
 		// 2 LUTs 1 FF per flag, all FFs have same clke
 		valid <= (valid << push | {{DEPTH-1{1'b0}}, push}) >> pop;
 	end
@@ -61,14 +67,14 @@ end
 always @ (posedge clk) begin: shift_data
 	integer i;
 	for (i = 0; i < DEPTH; i = i + 1) begin: data_stage
-		if (r_en || (w_en && !valid[i] && (i == DEPTH - 1 || !valid[i + 1]))) begin
-			mem[i] <= valid[i + 1] ? mem[i + 1] : w_data;
+		if (ren || (wen && !valid[i] && (i == DEPTH - 1 || !valid[i + 1]))) begin
+			mem[i] <= valid[i + 1] ? mem[i + 1] : wdata;
 		end
 	end
 end
 
-always @ (*) mem[DEPTH] = w_data;
-assign r_data = mem[0];
+always @ (*) mem[DEPTH] = wdata;
+assign rdata = mem[0];
 
 // ----------------------------------------------------------------------------
 // Flags
@@ -79,8 +85,10 @@ assign empty = !valid[0];
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		level <= {W_LEVEL{1'b0}};
+	end else if (flush) begin
+		level <= {W_LEVEL{1'b0}};
 	end else begin
-		level <= level + push - pop;
+		level <= (level + push) - pop;
 	end
 end
 
@@ -89,10 +97,10 @@ end
 
 //synthesis translate_off
 always @ (posedge clk)
-	if (w_en && full)
+	if (wen && full)
 		$display($time, ": WARNING %m: push on full");
 always @ (posedge clk)
-	if (r_en && empty)
+	if (ren && empty)
 		$display($time, ": WARNING %m: pop on empty");
 //synthesis translate_on
 
@@ -100,8 +108,9 @@ always @ (posedge clk)
 `ifdef FORMAL_CHECK_FIFO
 initial assume(!rst_n);
 always @ (posedge clk) begin
-	assume(!(w_en && full && !r_en));
-	assume(!(r_en && empty));
+	assume(!(wen && full && !ren));
+	assume(!(ren && empty));
+	assume(!flush);
 	assume(rst_n);
 
 	assert((full) ~^ (level == DEPTH));
@@ -109,13 +118,22 @@ always @ (posedge clk) begin
 	assert(level <= DEPTH);
 	assert((w_ptr == r_ptr) ~^ (full || empty));
 
-	assert($past(r_en) || (r_data == $past(r_data) || $past(empty)));
-	assert($past(r_en) || level >= $past(level));
-	assert($past(w_en) || level <= $past(level));
-	assert(!($past(empty) && $past(w_en) && r_data != $past(w_data)));
-	assert(!($past(r_en) && r_ptr == $past(r_ptr)));
-	assert(!($past(w_en) && w_ptr == $past(w_ptr)));
+	assert($past(ren) || (rdata == $past(rdata) || $past(empty)));
+	assert($past(ren) || level >= $past(level));
+	assert($past(wen) || level <= $past(level));
+	assert(!($past(empty) && $past(wen) && rdata != $past(wdata)));
+	assert(!($past(ren) && r_ptr == $past(r_ptr)));
+	assert(!($past(wen) && w_ptr == $past(w_ptr)));
+end
+`elsif FORMAL
+always @ (posedge clk) if (rst_n) begin
+	assert(!(wen && full && !ren));
+	assert(!(ren && empty));
 end
 `endif
 
 endmodule
+
+`ifndef YOSYS
+`default_nettype wire
+`endif
