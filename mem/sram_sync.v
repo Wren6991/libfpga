@@ -116,6 +116,9 @@ end else begin: behav_mem
 
 genvar i;
 
+`ifdef YOSYS
+(* no_rw_check *)
+`endif
 reg [WIDTH-1:0] mem [0:DEPTH-1];
 
 if (PRELOAD_FILE != "" || SIM_DEFINED) begin: preload

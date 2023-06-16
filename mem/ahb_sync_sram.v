@@ -27,6 +27,7 @@ module ahb_sync_sram #(
 	parameter W_ADDR = 32,
 	parameter DEPTH = 1 << 11,
 	parameter HAS_WRITE_BUFFER = 1,
+	parameter USE_1R1W = 0,
 	parameter PRELOAD_FILE = ""
 ) (
 	// Globals
@@ -75,8 +76,8 @@ wire ahb_write_aphase = ahbls_htrans[1] && ahbls_hready &&  ahbls_hwrite;
 // time. Otherwise, we must always retire the write immediately (directly from
 // the hwdata bus).
 wire write_retire = |wmask_saved && !(ahb_read_aphase && HAS_WRITE_BUFFER);
-wire wdata_capture = HAS_WRITE_BUFFER && !wbuf_vld && |wmask_saved && ahb_read_aphase;
-wire read_collision = !HAS_WRITE_BUFFER && write_retire && ahb_read_aphase;
+wire wdata_capture = HAS_WRITE_BUFFER && !USE_1R1W && !wbuf_vld && |wmask_saved && ahb_read_aphase;
+wire read_collision = !HAS_WRITE_BUFFER && !USE_1R1W && write_retire && ahb_read_aphase;
 
 wire [W_SRAM_ADDR-1:0] haddr_row = ahbls_haddr[W_BYTEADDR +: W_SRAM_ADDR];
 wire [W_BYTES-1:0] wmask_noshift = ~({W_BYTES{1'b1}} << (1 << ahbls_hsize));
@@ -122,19 +123,43 @@ wire [W_SRAM_ADDR-1:0] sram_addr = write_retire || read_delay_state ? addr_saved
 wire [W_DATA-1:0] sram_wdata = wbuf_vld ? wdata_saved : ahbls_hwdata;
 wire [W_DATA-1:0] sram_rdata;
 
-sram_sync #(
-	.WIDTH(W_DATA),
-	.DEPTH(DEPTH),
-	.BYTE_ENABLE(1),
-	.PRELOAD_FILE(PRELOAD_FILE)
-) sram (
-	.clk   (clk),
-	.wen   (sram_wen),
-	.ren   (ahb_read_aphase),
-	.addr  (sram_addr),
-	.wdata (sram_wdata),
-	.rdata (sram_rdata)
-);
+generate
+if (USE_1R1W == 0) begin: ram_sp
+
+	sram_sync #(
+		.WIDTH        (W_DATA),
+		.DEPTH        (DEPTH),
+		.BYTE_ENABLE  (1),
+		.PRELOAD_FILE (PRELOAD_FILE)
+	) sram (
+		.clk   (clk),
+		.wen   (sram_wen),
+		.ren   (ahb_read_aphase),
+		.addr  (sram_addr),
+		.wdata (sram_wdata),
+		.rdata (sram_rdata)
+	);
+
+end else begin: ram_1r1w
+
+	sram_sync_1r1w #(
+		.WIDTH          (W_DATA),
+		.DEPTH          (DEPTH),
+		.WRITE_GRANULE  (8),
+		.R2W_FORWARDING (1),
+		.PRELOAD_FILE   (PRELOAD_FILE)
+	) sram (
+		.clk   (clk),
+		.waddr (addr_saved),
+		.wdata (sram_wdata),
+		.wen   (wmask_saved),
+		.raddr (haddr_row),
+		.rdata (sram_rdata),
+		.ren   (ahb_read_aphase)
+	);
+
+end
+endgenerate
 
 // ----------------------------------------------------------------------------
 // AHBL hookup
@@ -156,7 +181,7 @@ always @ (posedge clk or negedge rst_n)
 	else if (ahbls_hready)
 		haddr_dphase <= haddr_row;
 
-wire addr_match = HAS_WRITE_BUFFER && haddr_dphase == addr_saved;
+wire addr_match = HAS_WRITE_BUFFER && !USE_1R1W && haddr_dphase == addr_saved;
 genvar b;
 generate
 for (b = 0; b < W_BYTES; b = b + 1) begin: write_merge
