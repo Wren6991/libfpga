@@ -22,6 +22,8 @@
  // Optionally, the write buffer can be removed to save a small amount of
  // logic. The adapter will then insert one wait state on write->read pairs.
 
+`default_nettype none
+
 module ahb_sync_sram #(
 	parameter W_DATA = 32,
 	parameter W_ADDR = 32,
@@ -49,12 +51,9 @@ module ahb_sync_sram #(
 	output wire [W_DATA-1:0]  ahbls_hrdata
 );
 
-// This should be localparam but ISIM won't allow the $clog2 call for localparams
-// because of "reasons"
-parameter  W_SRAM_ADDR = $clog2(DEPTH);
+localparam W_SRAM_ADDR = $clog2(DEPTH);
 localparam W_BYTES     = W_DATA / 8;
-parameter  W_BYTEADDR  = $clog2(W_BYTES);
-
+localparam W_BYTEADDR  = $clog2(W_BYTES);
 
 // ----------------------------------------------------------------------------
 // AHBL state machine and buffering
@@ -62,8 +61,10 @@ parameter  W_BYTEADDR  = $clog2(W_BYTES);
 // Need to buffer at least a write address,
 // and potentially the data too:
 reg [W_SRAM_ADDR-1:0] addr_saved;
+reg                   write_saved;
+reg [W_BYTEADDR-1:0]  align_saved;
+reg [2:0]             size_saved;
 reg [W_DATA-1:0]      wdata_saved;
-reg [W_BYTES-1:0]     wmask_saved;
 reg                   wbuf_vld;
 reg                   read_delay_state;
 
@@ -71,42 +72,45 @@ reg                   read_delay_state;
 wire ahb_read_aphase  = ahbls_htrans[1] && ahbls_hready && !ahbls_hwrite;
 wire ahb_write_aphase = ahbls_htrans[1] && ahbls_hready &&  ahbls_hwrite;
 
+// Mask calculation is deferred to data phase, to avoid address phase delay
+wire [W_BYTES-1:0] wmask_noshift = ~({W_BYTES{1'b1}} << (1 << size_saved));
+wire [W_BYTES-1:0] wmask_saved = {W_BYTES{write_saved}} & (wmask_noshift << align_saved);
+
 // If we have a write buffer, we can hold onto buffered data during an
 // immediately following sequence of reads, and retire the buffer at a later
 // time. Otherwise, we must always retire the write immediately (directly from
 // the hwdata bus).
-wire write_retire = |wmask_saved && !(ahb_read_aphase && HAS_WRITE_BUFFER);
+wire write_retire = write_saved && !(ahb_read_aphase && HAS_WRITE_BUFFER);
 wire wdata_capture = HAS_WRITE_BUFFER && !USE_1R1W && !wbuf_vld && |wmask_saved && ahb_read_aphase;
 wire read_collision = !HAS_WRITE_BUFFER && !USE_1R1W && write_retire && ahb_read_aphase;
 
 wire [W_SRAM_ADDR-1:0] haddr_row = ahbls_haddr[W_BYTEADDR +: W_SRAM_ADDR];
-wire [W_BYTES-1:0] wmask_noshift = ~({W_BYTES{1'b1}} << (1 << ahbls_hsize));
-wire [W_BYTES-1:0] wmask = wmask_noshift << ahbls_haddr[W_BYTEADDR-1:0];
 
 // AHBL state machine (mainly controlling write buffer)
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
-		wmask_saved <= {W_BYTES{1'b0}};
 		addr_saved <= {W_SRAM_ADDR{1'b0}};
 		wdata_saved <= {W_DATA{1'b0}};
+		write_saved <= 1'b0;
+		size_saved <= 3'h0;
+		align_saved <= {W_BYTEADDR{1'b0}};
 		wbuf_vld <= 1'b0;
 		read_delay_state <= 1'b0;
 	end else begin
 		if (ahb_write_aphase) begin
-			wmask_saved <= wmask;
+			write_saved <= 1'b1;
+			align_saved <= ahbls_haddr[W_BYTEADDR-1:0];
+			size_saved  <= ahbls_hsize;
 			addr_saved <= haddr_row;
 		end else if (write_retire) begin
-			wmask_saved <= {W_BYTES{1'b0}};
+			write_saved <= 1'b0;
 		end
 		if (read_collision) begin
 			addr_saved <= haddr_row;
 		end
-		if (wdata_capture) begin: capture
-			integer i;
+		if (wdata_capture) begin
 			wbuf_vld <= 1'b1;
-			for (i = 0; i < W_BYTES; i = i + 1)
-				if (wmask_saved[i])
-					wdata_saved[i * 8 +: 8] <= ahbls_hwdata[i * 8 +: 8];
+			wdata_saved <= ahbls_hwdata;
 		end else if (write_retire) begin
 			wbuf_vld <= 1'b0;
 		end
@@ -190,5 +194,8 @@ for (b = 0; b < W_BYTES; b = b + 1) begin: write_merge
 end
 endgenerate
 
-
 endmodule
+
+`ifndef YOSYS
+`default_nettype wire
+`endif
