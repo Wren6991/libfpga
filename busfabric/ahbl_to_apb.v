@@ -1,3 +1,5 @@
+`default_nettype none
+
 module ahbl_to_apb #(
 	parameter W_HADDR = 32,
 	parameter W_PADDR = 16,
@@ -6,9 +8,6 @@ module ahbl_to_apb #(
 	input wire clk,
 	input wire rst_n,
 
-	input  wire               ahbls_hready,
-	output wire               ahbls_hready_resp,
-	output wire               ahbls_hresp,
 	input  wire [W_HADDR-1:0] ahbls_haddr,
 	input  wire               ahbls_hwrite,
 	input  wire [1:0]         ahbls_htrans,
@@ -17,6 +16,9 @@ module ahbl_to_apb #(
 	input  wire [3:0]         ahbls_hprot,
 	input  wire               ahbls_hmastlock,
 	input  wire [W_DATA-1:0]  ahbls_hwdata,
+	input  wire               ahbls_hready,
+	output reg                ahbls_hready_resp,
+	output reg                ahbls_hresp,
 	output reg  [W_DATA-1:0]  ahbls_hrdata,
 
 	output reg  [W_PADDR-1:0] apbm_paddr,
@@ -31,39 +33,51 @@ module ahbl_to_apb #(
 
 // Transfer state machine
 
-localparam W_APB_STATE = 4;
-localparam S_IDLE  = 4'd0; // Idle upstream dataphase
-localparam S_RD0   = 4'd1; // Downstream setup phase (cannot stall)
-localparam S_RD1   = 4'd2; // Downstream access phase (may stall or error)
-localparam S_RD2   = 4'd3; // Return data, capture next address phase
-localparam S_WR0   = 4'd4; // Sample hwdata
-localparam S_WR1   = 4'd5; // Downstream setup phase (cannot stall)
-localparam S_WR2   = 4'd6; // Downstream access phase (may stall or error)
-localparam S_WR3   = 4'd7; // Report success, capture next address phase
-localparam S_ERR0  = 4'd8; // AHBL error response, first cycle
-localparam S_ERR1  = 4'd9; // AHBL error response, and accept new address phase if not deasserted.
+localparam W_APB_STATE = 3;
+localparam S_READY = 3'd0; // Idle upstream dphase or end of read/write dphase
+localparam S_RD0   = 3'd1; // Downstream setup phase (cannot stall)
+localparam S_RD1   = 3'd2; // Downstream access phase (may stall or error)
+localparam S_WR0   = 3'd3; // Sample hwdata
+localparam S_WR1   = 3'd4; // Downstream setup phase (cannot stall)
+localparam S_WR2   = 3'd5; // Downstream access phase (may stall or error)
+localparam S_ERR0  = 3'd6; // AHBL error response, first cycle
+localparam S_ERR1  = 3'd7; // AHBL error response, and accept new address phase if not deasserted.
 
 reg [W_APB_STATE-1:0] apb_state;
+reg [W_APB_STATE-1:0] apb_state_nxt;
 
 wire [W_APB_STATE-1:0] aphase_to_dphase =
 	ahbls_htrans[1] &&  ahbls_hwrite ? S_WR0 :
-	ahbls_htrans[1] && !ahbls_hwrite ? S_RD0 : S_IDLE;
+	ahbls_htrans[1] && !ahbls_hwrite ? S_RD0 : S_READY;
+
+always @ (*) begin
+	apb_state_nxt = apb_state;
+	 case (apb_state)
+		S_READY: if (ahbls_hready) apb_state_nxt = aphase_to_dphase;
+		S_WR0:                     apb_state_nxt = S_WR1;
+		S_WR1:                     apb_state_nxt = S_WR2;
+		S_WR2:   if (apbm_pready)  apb_state_nxt = apbm_pslverr ? S_ERR0 : S_READY;
+		S_RD0:                     apb_state_nxt = S_RD1;
+		S_RD1:   if (apbm_pready)  apb_state_nxt = apbm_pslverr ? S_ERR0 : S_READY;
+		S_ERR0:                    apb_state_nxt = S_ERR1;
+		S_ERR1:                    apb_state_nxt = aphase_to_dphase;
+	endcase
+end
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
-		apb_state <= S_IDLE;
-	end else case (apb_state)
-		S_IDLE: if (ahbls_hready) apb_state <= aphase_to_dphase;
-		S_WR0:                    apb_state <= S_WR1;
-		S_WR1:                    apb_state <= S_WR2;
-		S_WR2:  if (apbm_pready)  apb_state <= apbm_pslverr ? S_ERR0 : S_WR3;
-		S_WR3:                    apb_state <= aphase_to_dphase;
-		S_RD0:                    apb_state <= S_RD1;
-		S_RD1:  if (apbm_pready)  apb_state <= apbm_pslverr ? S_ERR0 : S_RD2;
-		S_RD2:                    apb_state <= aphase_to_dphase;
-		S_ERR0:                   apb_state <= S_ERR1;
-		S_ERR1:                   apb_state <= aphase_to_dphase;
-	endcase
+		apb_state <= S_READY;
+		ahbls_hready_resp <= 1'b1;
+		ahbls_hresp <= 1'b0;
+	end else begin
+		apb_state <= apb_state_nxt;
+		ahbls_hready_resp <=
+			apb_state_nxt == S_READY ||
+			apb_state_nxt == S_ERR1;
+		ahbls_hresp <=
+			apb_state_nxt == S_ERR0 ||
+			apb_state_nxt == S_ERR1;
+	end
 end
 
 // Downstream request
@@ -92,16 +106,6 @@ end
 
 // Upstream response
 
-assign ahbls_hready_resp =
-	apb_state == S_IDLE ||
-	apb_state == S_RD2  ||
-	apb_state == S_WR3  ||
-	apb_state == S_ERR1;
-
-assign ahbls_hresp =
-	apb_state == S_ERR0 ||
-	apb_state == S_ERR1;
-
 always @ (posedge clk or negedge rst_n)
 	if (!rst_n)
 		ahbls_hrdata <= {W_DATA{1'b0}};
@@ -109,3 +113,7 @@ always @ (posedge clk or negedge rst_n)
 		ahbls_hrdata <= apbm_prdata;
 
 endmodule
+
+`ifndef YOSYS
+`default_nettype wire
+`endif
