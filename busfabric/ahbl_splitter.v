@@ -33,6 +33,7 @@ module ahbl_splitter #(
 	parameter W_DATA = 32,
 	parameter ADDR_MAP  = 64'h20000000_00000000,
 	parameter ADDR_MASK = 64'hf0000000_f0000000,
+	parameter IGNORE_BUS_ERRORS = 0,
 	parameter CONN_MASK = {N_PORTS{1'b1}}
 ) (
 	// Global signals
@@ -162,10 +163,10 @@ onehot_mux #(
 // behaved masters.
 // One rule to avoid this is to *only use data-phase state for muxing*
 
-assign src_hready_resp = (!slave_sel_d && (err_ph1 || !decode_err_d)) ||
+assign src_hready_resp = (!slave_sel_d && (IGNORE_BUS_ERRORS || err_ph1 || !decode_err_d)) ||
 	|(slave_sel_d & dst_hready_resp);
 
-assign src_hresp = decode_err_d || |(slave_sel_d & dst_hresp);
+assign src_hresp = !IGNORE_BUS_ERRORS && (decode_err_d || |(slave_sel_d & dst_hresp));
 
 assign src_hexokay = |(slave_sel_d & dst_hexokay);
 
