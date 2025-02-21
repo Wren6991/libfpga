@@ -28,7 +28,11 @@ module ahb_sync_sram #(
 	parameter W_DATA = 32,
 	parameter W_ADDR = 32,
 	parameter DEPTH = 1 << 11,
+	// Use a one-deep write buffer to enable zero-wait-state operation with a
+	// single-ported memory:
 	parameter HAS_WRITE_BUFFER = 1,
+	// Alternatively, use independent ports of a one-read-one-write memory to
+	// avoid collisions -- you should set HAS_WRITE_BUFFER to 0 in this case:
 	parameter USE_1R1W = 0,
 	parameter PRELOAD_FILE = ""
 ) (
@@ -80,7 +84,7 @@ wire [W_BYTES-1:0] wmask_saved = {W_BYTES{write_saved}} & (wmask_noshift << alig
 // immediately following sequence of reads, and retire the buffer at a later
 // time. Otherwise, we must always retire the write immediately (directly from
 // the hwdata bus).
-wire write_retire = write_saved && !(ahb_read_aphase && HAS_WRITE_BUFFER);
+wire write_retire = write_saved && !(ahb_read_aphase && HAS_WRITE_BUFFER && !USE_1R1W);
 wire wdata_capture = HAS_WRITE_BUFFER && !USE_1R1W && !wbuf_vld && |wmask_saved && ahb_read_aphase;
 wire read_collision = !HAS_WRITE_BUFFER && !USE_1R1W && write_retire && ahb_read_aphase;
 
