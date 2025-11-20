@@ -77,7 +77,6 @@ module ahbl_splitter #(
 
 localparam HTRANS_IDLE = 2'b00;
 
-integer i;
 
 // Address decode
 
@@ -85,7 +84,8 @@ reg [N_PORTS-1:0] slave_sel_a_nomask;
 reg [N_PORTS-1:0] slave_sel_a;
 reg decode_err_a;
 
-always @ (*) begin
+always @ (*) begin: decode
+	integer i;
 	if (src_htrans == HTRANS_IDLE) begin
 		slave_sel_a_nomask = {N_PORTS{1'b0}};
 		slave_sel_a = {N_PORTS{1'b0}};
@@ -114,7 +114,8 @@ assign dst_hmaster   = {N_PORTS{src_hmaster}};
 assign dst_hmastlock = {N_PORTS{src_hmastlock}};
 assign dst_hexcl     = {N_PORTS{src_hexcl}};
 
-always @ (*) begin
+always @ (*) begin: mask_htrans
+	integer i;
 	for (i = 0; i < N_PORTS; i = i + 1) begin
 		dst_htrans[i * 2 +: 2] = slave_sel_a[i] ? src_htrans : HTRANS_IDLE;
 	end 
