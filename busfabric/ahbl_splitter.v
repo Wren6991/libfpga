@@ -87,6 +87,7 @@ reg decode_err_a;
 always @ (*) begin: decode
 	integer i;
 	if (src_htrans == HTRANS_IDLE) begin
+		i = 0; // prevent spurious latch inference warning from yosys
 		slave_sel_a_nomask = {N_PORTS{1'b0}};
 		slave_sel_a = {N_PORTS{1'b0}};
 		decode_err_a = 1'b0;
