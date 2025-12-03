@@ -45,7 +45,7 @@ always @ (posedge clk or negedge rst_n) begin
 		// Keep everything clear so that we raise
 		// clk_en on the cycle immediately following being enabled
 		clk_en <= 1'b0;
-		ctr_int <= {W_DIV_INT{1'b0}} | 1'b1;
+		ctr_int <= {{W_DIV_INT-1{1'b0}}, 1'b1};
 		ctr_frac <= {W_DIV_FRAC{1'b0}};
 		frac_carry <= 1'b0;
 	end else begin
