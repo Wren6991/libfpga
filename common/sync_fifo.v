@@ -59,7 +59,7 @@ always @ (posedge clk or negedge rst_n) begin
 		valid <= {DEPTH+1{1'b0}};
 	end else if (wen || ren) begin
 		// 2 LUTs 1 FF per flag, all FFs have same clke
-		valid <= (valid << push | {{DEPTH-1{1'b0}}, push}) >> pop;
+		valid <= (valid << push | {{DEPTH{1'b0}}, push}) >> pop;
 	end
 end
 
@@ -88,7 +88,7 @@ always @ (posedge clk or negedge rst_n) begin
 	end else if (flush) begin
 		level <= {W_LEVEL{1'b0}};
 	end else begin
-		level <= (level + push) - pop;
+		level <= (level + {{W_LEVEL-1{1'b0}}, push}) - {{W_LEVEL-1{1'b0}}, pop};
 	end
 end
 

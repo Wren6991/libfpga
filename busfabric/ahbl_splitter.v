@@ -93,11 +93,11 @@ always @ (*) begin: decode
 		decode_err_a = 1'b0;
 	end else begin
 		for (i = 0; i < N_PORTS; i = i + 1) begin
-			slave_sel_a_nomask[i] = !((src_haddr ^ ADDR_MAP[i * W_ADDR +: W_ADDR])
+			slave_sel_a_nomask[i] = ~|((src_haddr ^ ADDR_MAP[i * W_ADDR +: W_ADDR])
 				& ADDR_MASK[i * W_ADDR +: W_ADDR]);
 		end
 		slave_sel_a = slave_sel_a_nomask & CONN_MASK;
-		decode_err_a = !slave_sel_a_nomask;
+		decode_err_a = ~|slave_sel_a_nomask;
 	end
 end
 
@@ -165,7 +165,7 @@ onehot_mux #(
 // behaved masters.
 // One rule to avoid this is to *only use data-phase state for muxing*
 
-assign src_hready_resp = (!slave_sel_d && (IGNORE_BUS_ERRORS || err_ph1 || !decode_err_d)) ||
+assign src_hready_resp = (~|slave_sel_d && (IGNORE_BUS_ERRORS || err_ph1 || !decode_err_d)) ||
 	|(slave_sel_d & dst_hready_resp);
 
 assign src_hresp = !IGNORE_BUS_ERRORS && (decode_err_d || |(slave_sel_d & dst_hresp));

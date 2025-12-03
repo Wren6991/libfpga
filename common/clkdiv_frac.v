@@ -38,7 +38,7 @@ reg                  frac_carry;
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		clk_en <= 1'b0;
-		ctr_int <= {W_DIV_INT{1'b0}} | 1'b1;
+		ctr_int <= {{W_DIV_INT-1{1'b0}}, 1'b1};
 		ctr_frac <= {W_DIV_FRAC{1'b0}};
 		frac_carry <= 1'b0;
 	end else if (!en) begin
@@ -49,13 +49,13 @@ always @ (posedge clk or negedge rst_n) begin
 		ctr_frac <= {W_DIV_FRAC{1'b0}};
 		frac_carry <= 1'b0;
 	end else begin
-		if (ctr_int == 1) begin
+		if (ctr_int == {{W_DIV_INT-1{1'b0}}, 1'b1}) begin
 			{frac_carry, ctr_frac} <= ctr_frac + div_frac;
-			ctr_int <= div_int + frac_carry;
+			ctr_int <= div_int + {{W_DIV_INT-1{1'b0}}, frac_carry};
 			clk_en <= 1'b1;
 		end else begin
 			clk_en <= 1'b0;
-			ctr_int <= ctr_int - 1'b1;
+			ctr_int <= ctr_int - {{W_DIV_INT-1{1'b0}}, 1'b1};
 		end
 	end
 end

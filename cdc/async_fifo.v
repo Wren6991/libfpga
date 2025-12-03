@@ -29,6 +29,8 @@
 // This is based on Style #2 from Cummings' paper:
 // Simulation and Synthesis Techniques for Asynchronous FIFO Design (SNUG 2002)
 
+/* verilator lint_off PINCONNECTEMPTY */
+
 module async_fifo #(
 	parameter W_DATA = 16,
 	parameter W_ADDR = 3,

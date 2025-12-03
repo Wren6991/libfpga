@@ -26,31 +26,31 @@ module apb_splitter #(
 
 integer i;
 
-reg [N_SLAVES-1:0] slave_mask;
+reg [N_SLAVES-1:0] decode_mask;
 
 always @ (*) begin
 	for (i = 0; i < N_SLAVES; i = i + 1) begin
-		slave_mask[i] = (apbs_paddr & ADDR_MASK[i * W_ADDR +: W_ADDR])
+		decode_mask[i] = (apbs_paddr & ADDR_MASK[i * W_ADDR +: W_ADDR])
 			== ADDR_MAP[i * W_ADDR +: W_ADDR];
 	end
 end
 
-assign apbs_pready = !slave_mask || slave_mask & apbm_pready;
-assign apbs_pslverr = !slave_mask || slave_mask & apbm_pslverr;
+assign apbs_pready  = ~|decode_mask || |(decode_mask & apbm_pready);
+assign apbs_pslverr = ~|decode_mask || |(decode_mask & apbm_pslverr);
 
-assign apbm_paddr = {N_SLAVES{apbs_paddr}};
-assign apbm_psel = slave_mask & {N_SLAVES{apbs_psel}};
-assign apbm_penable = slave_mask & {N_SLAVES{apbs_penable}};
-assign apbm_pwrite = slave_mask & {N_SLAVES{apbs_pwrite}};
-assign apbm_pwdata = {N_SLAVES{apbs_pwdata}};
+assign apbm_paddr   = {N_SLAVES{apbs_paddr}};
+assign apbm_psel    = decode_mask & {N_SLAVES{apbs_psel}};
+assign apbm_penable = decode_mask & {N_SLAVES{apbs_penable}};
+assign apbm_pwrite  = decode_mask & {N_SLAVES{apbs_pwrite}};
+assign apbm_pwdata  = {N_SLAVES{apbs_pwdata}};
 
 onehot_mux #(
-	.N_INPUTS(N_SLAVES),
-	.W_INPUT(W_DATA)
+	.N_INPUTS (N_SLAVES),
+	.W_INPUT  (W_DATA)
 ) prdata_mux (
-	.in(apbm_prdata),
-	.sel(slave_mask),
-	.out(apbs_prdata)
+	.in  (apbm_prdata),
+	.sel (decode_mask),
+	.out (apbs_prdata)
 );
 
 endmodule
