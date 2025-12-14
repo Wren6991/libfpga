@@ -3,7 +3,9 @@
 module ahbl_to_apb #(
 	parameter W_HADDR = 32,
 	parameter W_PADDR = 16,
-	parameter W_DATA = 32
+	parameter W_DATA = 32,
+	// Set to 0 to remove reset from datapath flops:
+	parameter FULL_RESET = 1
 ) (
 	input wire clk,
 	input wire rst_n,
@@ -92,25 +94,47 @@ always @ (*) begin
 	endcase
 end
 
-always @ (posedge clk or negedge rst_n) begin
-	if (!rst_n) begin
-		apbm_paddr <= {W_PADDR{1'b0}};
-		apbm_pwdata <= {W_DATA{1'b0}};
-	end else begin
-		if (ahbls_htrans[1] && ahbls_hready)
+generate
+if (FULL_RESET != 0) begin: reg_downstream_reset
+	always @ (posedge clk or negedge rst_n) begin
+		if (!rst_n) begin
+			apbm_paddr <= {W_PADDR{1'b0}};
+			apbm_pwdata <= {W_DATA{1'b0}};
+		end else begin
+			if (ahbls_htrans[1] && ahbls_hready)
+				apbm_paddr <= ahbls_haddr[W_PADDR-1:0];
+			if (apb_state == S_WR0)
+				apbm_pwdata <= ahbls_hwdata;
+		end
+	end
+end else begin: reg_downstream_noreset
+	always @ (posedge clk) begin
+		if (ahbls_htrans[1] && ahbls_hready) begin
 			apbm_paddr <= ahbls_haddr[W_PADDR-1:0];
-		if (apb_state == S_WR0)
+		end
+		if (apb_state == S_WR0) begin
 			apbm_pwdata <= ahbls_hwdata;
+		end
 	end
 end
+endgenerate
 
 // Upstream response
-
-always @ (posedge clk or negedge rst_n)
-	if (!rst_n)
-		ahbls_hrdata <= {W_DATA{1'b0}};
-	else if (apb_state == S_RD1 && apbm_pready)
+generate
+if (FULL_RESET != 0) begin: reg_upstream_reset
+	always @ (posedge clk or negedge rst_n) begin
+		if (!rst_n) begin
+			ahbls_hrdata <= {W_DATA{1'b0}};
+		end else if (apb_state == S_RD1 && apbm_pready) begin
+			ahbls_hrdata <= apbm_prdata;
+		end
+	end
+end else begin: reg_upstream_noreset
+	always @ (posedge clk) begin
 		ahbls_hrdata <= apbm_prdata;
+	end
+end
+endgenerate
 
 endmodule
 
